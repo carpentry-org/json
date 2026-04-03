@@ -1,0 +1,32 @@
+(load "json.carp")
+
+(Project.config "title" "json")
+(Project.config "docs-directory" "./docs/")
+(Project.config "docs-logo" "")
+(Project.config "docs-url" "https://github.com/carpentry-org/json")
+(Project.config "docs-styling" "style.css")
+(Project.config "docs-prelude" "A JSON parser and serializer for Carp.
+
+`JSON` is a sum type with six variants: `Null`, `Bool`, `Num`, `Str`, `Arr`,
+and `Obj`. Parse JSON strings with [`JSON.parse`](./JSON.html#parse), serialize
+with [`JSON.str`](./JSON.html#str), and access values with
+[`JSON.get`](./JSON.html#get) and [`JSON.nth`](./JSON.html#nth).
+
+### Parsing
+```
+(load \"git@github.com:carpentry-org/json@0.1.0\")
+
+(defn main []
+  (match (JSON.parse \"{\\\"name\\\": \\\"carp\\\"}\")
+    (Result.Success j) (println* &j)
+    (Result.Error e) (IO.errorln &e)))
+```
+
+### Building values
+```
+(def j (JSON.obj [(JSON.entry @\"name\" (JSON.Str @\"carp\"))
+                  (JSON.entry @\"version\" (JSON.Num 1.0))]))
+```")
+
+(save-docs JSON)
+(quit)

@@ -1,0 +1,190 @@
+(load "../json.carp")
+
+(Project.no-echo)
+
+(load "Bench.carp")
+(use-all Bench IO)
+
+; ---------------------------------------------------------------------------
+; Input builders
+; ---------------------------------------------------------------------------
+
+(defn make-medium-arr []
+  (let-do [parts (the (Array String) [])]
+    (for [i 0 100]
+      (Array.push-back! &parts (fmt "{\"id\":%d,\"val\":\"item\"}" i)))
+    (fmt "[%s]" &(String.join "," &parts))))
+
+(defn make-medium-obj []
+  (let-do [parts (the (Array String) [])]
+    (for [i 0 50]
+      (Array.push-back! &parts (fmt "\"key_%d\":%d" i i)))
+    (fmt "{%s}" &(String.join "," &parts))))
+
+(defn make-large-arr []
+  (let-do [parts (the (Array String) [])]
+    (for [i 0 1000]
+      (Array.push-back! &parts (fmt "{\"id\":%d,\"name\":\"item_%d\",\"active\":true,\"score\":3.14}" i i)))
+    (fmt "[%s]" &(String.join "," &parts))))
+
+(defn must-parse [s]
+  (match (JSON.parse s)
+    (Result.Success j) j
+    (Result.Error e) (do (IO.errorln &e) (JSON.Null))))
+
+; ---------------------------------------------------------------------------
+; Globals (filled by setup)
+; ---------------------------------------------------------------------------
+
+(def small-prim @"42")
+(def small-str @"\"hello world\"")
+(def small-obj @"{\"name\":\"carp\",\"version\":1}")
+(def medium-arr @"")
+(def medium-obj @"")
+(def nested-obj @"{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":{\"h\":true}}}}}}}}")
+(def escaped-strs @"[\"hello\\nworld\",\"tab\\there\",\"quote\\\"inside\",\"back\\\\slash\",\"unicode\\u0041\\u00e9\"]")
+(def large-arr @"")
+
+(def parsed-small-obj (JSON.Null))
+(def parsed-medium-arr (JSON.Null))
+(def parsed-medium-obj (JSON.Null))
+(def parsed-large-arr (JSON.Null))
+
+(defn setup []
+  (do
+    (set! medium-arr (make-medium-arr))
+    (set! medium-obj (make-medium-obj))
+    (set! large-arr (make-large-arr))
+    (set! parsed-small-obj (must-parse &small-obj))
+    (set! parsed-medium-arr (must-parse &medium-arr))
+    (set! parsed-medium-obj (must-parse &medium-obj))
+    (set! parsed-large-arr (must-parse &large-arr))))
+
+; ---------------------------------------------------------------------------
+; Parse benchmarks
+; ---------------------------------------------------------------------------
+
+(defn parse-small-prim [] (ignore (JSON.parse &small-prim)))
+(defn parse-small-str [] (ignore (JSON.parse &small-str)))
+(defn parse-small-obj [] (ignore (JSON.parse &small-obj)))
+(defn parse-medium-arr [] (ignore (JSON.parse &medium-arr)))
+(defn parse-medium-obj [] (ignore (JSON.parse &medium-obj)))
+(defn parse-nested-obj [] (ignore (JSON.parse &nested-obj)))
+(defn parse-escaped-strs [] (ignore (JSON.parse &escaped-strs)))
+(defn parse-large-arr [] (ignore (JSON.parse &large-arr)))
+
+; ---------------------------------------------------------------------------
+; Serialize benchmarks
+; ---------------------------------------------------------------------------
+
+(defn str-small-obj [] (ignore (JSON.str &parsed-small-obj)))
+(defn str-medium-arr [] (ignore (JSON.str &parsed-medium-arr)))
+(defn str-medium-obj [] (ignore (JSON.str &parsed-medium-obj)))
+(defn str-large-arr [] (ignore (JSON.str &parsed-large-arr)))
+
+; ---------------------------------------------------------------------------
+; Access benchmarks
+; ---------------------------------------------------------------------------
+
+(defn get-key [] (ignore (JSON.get &parsed-small-obj "name")))
+(defn get-in-deep []
+  (ignore (JSON.get-in &parsed-small-obj &[@"name"])))
+
+(defn nth-mid []
+  (ignore (JSON.nth &parsed-medium-arr 50)))
+
+; ---------------------------------------------------------------------------
+; Roundtrip benchmark
+; ---------------------------------------------------------------------------
+
+(defn roundtrip-medium []
+  (match (JSON.parse &medium-arr)
+    (Result.Success j) (ignore (JSON.parse &(JSON.str &j)))
+    _ ()))
+
+; ---------------------------------------------------------------------------
+; Main
+; ---------------------------------------------------------------------------
+
+(defn main []
+  (do
+    (setup)
+    (println "=== JSON Parse ===")
+    (println "")
+
+    (println "Parse primitive (42):")
+    (bench parse-small-prim)
+    (println "")
+
+    (println "Parse short string:")
+    (bench parse-small-str)
+    (println "")
+
+    (println "Parse small object (2 keys):")
+    (bench parse-small-obj)
+    (println "")
+
+    (println "Parse array (100 objects):")
+    (bench parse-medium-arr)
+    (println "")
+
+    (println "Parse object (50 keys):")
+    (bench parse-medium-obj)
+    (println "")
+
+    (println "Parse deeply nested object (8 levels):")
+    (bench parse-nested-obj)
+    (println "")
+
+    (println "Parse array with escape sequences:")
+    (bench parse-escaped-strs)
+    (println "")
+
+    (println "Parse large array (1000 objects):")
+    (Bench.set-min-runs! 10)
+    (bench parse-large-arr)
+    (Bench.set-min-runs! 50)
+    (println "")
+
+    (println "=== JSON Serialize ===")
+    (println "")
+
+    (println "Serialize small object:")
+    (bench str-small-obj)
+    (println "")
+
+    (println "Serialize array (100 objects):")
+    (bench str-medium-arr)
+    (println "")
+
+    (println "Serialize object (50 keys):")
+    (bench str-medium-obj)
+    (println "")
+
+    (println "Serialize large array (1000 objects):")
+    (Bench.set-min-runs! 10)
+    (bench str-large-arr)
+    (Bench.set-min-runs! 50)
+    (println "")
+
+    (println "=== JSON Access ===")
+    (println "")
+
+    (println "Get key from object:")
+    (bench get-key)
+    (println "")
+
+    (println "Get-in (1 level):")
+    (bench get-in-deep)
+    (println "")
+
+    (println "Nth element (index 50 of 100):")
+    (bench nth-mid)
+    (println "")
+
+    (println "=== JSON Roundtrip ===")
+    (println "")
+
+    (println "Parse + serialize array (100 objects):")
+    (bench roundtrip-medium)
+    (println "")))

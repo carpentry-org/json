@@ -1,0 +1,623 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="https://github.com/carpentry-org/json">
+                    <img src="">
+                </a>
+                <div class="title">
+                    json
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <a href="JSON.html">
+                                JSON
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="module">
+                <h1>
+                    JSON
+                </h1>
+                <div class="module-description">
+                    <p>is a JSON data type, parser, and serializer for Carp.</p>
+<h2>Usage</h2>
+<pre><code>; Parse JSON
+(match (JSON.parse &quot;{\&quot;name\&quot;: \&quot;carp\&quot;}&quot;)
+  (Result.Success j) (println* &amp;j)
+  (Result.Error e) (IO.errorln &amp;e))
+
+; Build JSON
+(def j (JSON.obj [(JSON.entry @&quot;name&quot; (JSON.Str @&quot;carp&quot;))
+                  (JSON.entry @&quot;version&quot; (JSON.Num 1.0))]))
+
+; Access values
+(JSON.get &amp;j &quot;name&quot;) ; =&gt; (Maybe.Just (JSON.Str &quot;carp&quot;))
+</code></pre>
+
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Arr">
+                        <h3 id="Arr">
+                            Arr
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Array (Box JSON))] JSON)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Arr</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Bool">
+                        <h3 id="Bool">
+                            Bool
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [Bool] JSON)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Bool</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Null">
+                        <h3 id="Null">
+                            Null
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [] JSON)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Null</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Num">
+                        <h3 id="Num">
+                            Num
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [Double] JSON)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Num</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Obj">
+                        <h3 id="Obj">
+                            Obj
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Map String (Box JSON))] JSON)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Obj</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Str">
+                        <h3 id="Str">
+                            Str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [String] JSON)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Str</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#arr?">
+                        <h3 id="arr?">
+                            arr?
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] Bool)
+                    </p>
+                    <pre class="args">
+                        (arr? j)
+                    </pre>
+                    <p class="doc">
+                        <p>checks whether a JSON value is an array.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#as-arr">
+                        <h3 id="as-arr">
+                            as-arr
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] (Maybe (Array (Box JSON))))
+                    </p>
+                    <pre class="args">
+                        (as-arr j)
+                    </pre>
+                    <p class="doc">
+                        <p>extracts a copy of the array value, or <code>Nothing</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#as-bool">
+                        <h3 id="as-bool">
+                            as-bool
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] (Maybe Bool))
+                    </p>
+                    <pre class="args">
+                        (as-bool j)
+                    </pre>
+                    <p class="doc">
+                        <p>extracts the boolean value, or <code>Nothing</code> if not a bool.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#as-num">
+                        <h3 id="as-num">
+                            as-num
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] (Maybe Double))
+                    </p>
+                    <pre class="args">
+                        (as-num j)
+                    </pre>
+                    <p class="doc">
+                        <p>extracts the numeric value, or <code>Nothing</code> if not a number.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#as-obj">
+                        <h3 id="as-obj">
+                            as-obj
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] (Maybe (Map String (Box JSON))))
+                    </p>
+                    <pre class="args">
+                        (as-obj j)
+                    </pre>
+                    <p class="doc">
+                        <p>extracts a copy of the object map, or <code>Nothing</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#as-str">
+                        <h3 id="as-str">
+                            as-str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] (Maybe String))
+                    </p>
+                    <pre class="args">
+                        (as-str j)
+                    </pre>
+                    <p class="doc">
+                        <p>extracts a copy of the string value, or <code>Nothing</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#bool?">
+                        <h3 id="bool?">
+                            bool?
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] Bool)
+                    </p>
+                    <pre class="args">
+                        (bool? j)
+                    </pre>
+                    <p class="doc">
+                        <p>checks whether a JSON value is a boolean.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#copy">
+                        <h3 id="copy">
+                            copy
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] JSON)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>copies a <code>JSON</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#delete">
+                        <h3 id="delete">
+                            delete
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [JSON] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>deletes a <code>JSON</code>. This should usually not be called manually.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#entry">
+                        <h3 id="entry">
+                            entry
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [a, b] (Pair a (Box b)))
+                    </p>
+                    <pre class="args">
+                        (entry k v)
+                    </pre>
+                    <p class="doc">
+                        <p>creates a key-value pair for use with <code>obj</code>. The value is
+automatically boxed.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#get">
+                        <h3 id="get">
+                            get
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a), (Ref String a)] (Maybe JSON))
+                    </p>
+                    <pre class="args">
+                        (get j k)
+                    </pre>
+                    <p class="doc">
+                        <p>looks up a key in a JSON object. Returns <code>Nothing</code> if the value is
+not an object or the key is absent. Returns a copy of the value.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#get-in">
+                        <h3 id="get-in">
+                            get-in
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a), (Ref (Array String) b)] (Maybe JSON))
+                    </p>
+                    <pre class="args">
+                        (get-in j keys)
+                    </pre>
+                    <p class="doc">
+                        <p>performs nested key lookup through objects. Returns a copy.</p>
+<pre><code>(JSON.get-in &amp;j &amp;[@&quot;data&quot; @&quot;users&quot;])
+</code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#get-tag">
+                        <h3 id="get-tag">
+                            get-tag
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] Int)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>Gets the tag from a <code>JSON</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#nth">
+                        <h3 id="nth">
+                            nth
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a), Int] (Maybe JSON))
+                    </p>
+                    <pre class="args">
+                        (nth j i)
+                    </pre>
+                    <p class="doc">
+                        <p>indexes into a JSON array. Returns <code>Nothing</code> if the value is not an
+array or the index is out of bounds. Returns a copy of the value.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#null?">
+                        <h3 id="null?">
+                            null?
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] Bool)
+                    </p>
+                    <pre class="args">
+                        (null? j)
+                    </pre>
+                    <p class="doc">
+                        <p>checks whether a JSON value is null.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#num?">
+                        <h3 id="num?">
+                            num?
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] Bool)
+                    </p>
+                    <pre class="args">
+                        (num? j)
+                    </pre>
+                    <p class="doc">
+                        <p>checks whether a JSON value is a number.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#obj">
+                        <h3 id="obj">
+                            obj
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Array (Pair String (Box JSON)))] JSON)
+                    </p>
+                    <pre class="args">
+                        (obj entries)
+                    </pre>
+                    <p class="doc">
+                        <p>builds a JSON object from an array of key-value pairs.</p>
+<pre><code>(JSON.obj [(JSON.entry @&quot;a&quot; (JSON.Num 1.0))
+           (JSON.entry @&quot;b&quot; (JSON.Bool true))])
+</code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#obj?">
+                        <h3 id="obj?">
+                            obj?
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] Bool)
+                    </p>
+                    <pre class="args">
+                        (obj? j)
+                    </pre>
+                    <p class="doc">
+                        <p>checks whether a JSON value is an object.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#parse">
+                        <h3 id="parse">
+                            parse
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Result JSON String))
+                    </p>
+                    <pre class="args">
+                        (parse s)
+                    </pre>
+                    <p class="doc">
+                        <p>parses a JSON value from a string.</p>
+<p>Returns a <code>(Result JSON String)</code> -- a <code>Success</code> with the parsed value, or an
+<code>Error</code> with a message describing what went wrong.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#prn">
+                        <h3 id="prn">
+                            prn
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>JSON</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#str">
+                        <h3 id="str">
+                            str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] String)
+                    </p>
+                    <pre class="args">
+                        (str j)
+                    </pre>
+                    <p class="doc">
+                        <p>serializes a JSON value to its string representation.</p>
+<p>Produces compact output with no extra whitespace.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#str?">
+                        <h3 id="str?">
+                            str?
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a)] Bool)
+                    </p>
+                    <pre class="args">
+                        (str? j)
+                    </pre>
+                    <p class="doc">
+                        <p>checks whether a JSON value is a string.</p>
+
+                    </p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

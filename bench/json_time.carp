@@ -1,0 +1,79 @@
+(load "../json.carp")
+
+(register get-time-elapsed (Fn [] Double) "get_time_elapsed")
+(relative-include "../../../carp/core/carp_bench.h")
+
+(defn make-large-arr [n]
+  (let-do [parts (the (Array String) [])]
+    (for [i 0 n]
+      (Array.push-back! &parts (fmt "{\"id\":%d,\"name\":\"item_%d\",\"active\":true,\"score\":3.14}" i i)))
+    (fmt "[%s]" &(String.join "," &parts))))
+
+(defn bench-parse [input runs]
+  (let-do [best 999999999.0]
+    (for [r 0 runs]
+      (let [t0 (get-time-elapsed)
+            result (JSON.parse input)
+            t1 (get-time-elapsed)
+            elapsed (Double.- t1 t0)]
+        (do
+          (ignore result)
+          (when (Double.< elapsed best)
+            (set! best elapsed)))))
+    best))
+
+; Isolate the bottleneck: parse a flat array of numbers vs array of objects
+(defn make-num-arr [n]
+  (let-do [parts (the (Array String) [])]
+    (for [i 0 n]
+      (Array.push-back! &parts (Int.str i)))
+    (fmt "[%s]" &(String.join "," &parts))))
+
+(defn make-str-arr [n]
+  (let-do [parts (the (Array String) [])]
+    (for [i 0 n]
+      (Array.push-back! &parts (fmt "\"item_%d\"" i)))
+    (fmt "[%s]" &(String.join "," &parts))))
+
+(defn make-flat-obj [n]
+  (let-do [parts (the (Array String) [])]
+    (for [i 0 n]
+      (Array.push-back! &parts (fmt "\"key_%d\":%d" i i)))
+    (fmt "{%s}" &(String.join "," &parts))))
+
+(defn main []
+  (do
+    (IO.println"--- Array of objects (original benchmark) ---")
+    (let [sizes [100 500 1000 2000]]
+      (for [si 0 (Array.length &sizes)]
+        (let [n @(Array.unsafe-nth &sizes si)
+              input (make-large-arr n)
+              ms (/ (bench-parse &input 5) 1000000.0)]
+          (println* n " objects: " ms "ms  (" (String.length &input) " bytes)"))))
+
+    (IO.println "")
+    (IO.println"--- Flat array of numbers ---")
+    (let [sizes [100 500 1000 2000 5000]]
+      (for [si 0 (Array.length &sizes)]
+        (let [n @(Array.unsafe-nth &sizes si)
+              input (make-num-arr n)
+              ms (/ (bench-parse &input 5) 1000000.0)]
+          (println* n " numbers: " ms "ms  (" (String.length &input) " bytes)"))))
+
+    (IO.println "")
+    (IO.println"--- Flat array of strings ---")
+    (let [sizes [100 500 1000 2000 5000]]
+      (for [si 0 (Array.length &sizes)]
+        (let [n @(Array.unsafe-nth &sizes si)
+              input (make-str-arr n)
+              ms (/ (bench-parse &input 5) 1000000.0)]
+          (println* n " strings: " ms "ms  (" (String.length &input) " bytes)"))))
+
+    (IO.println "")
+    (IO.println"--- Single flat object with N keys ---")
+    (let [sizes [10 50 100 200 500]]
+      (for [si 0 (Array.length &sizes)]
+        (let [n @(Array.unsafe-nth &sizes si)
+              input (make-flat-obj n)
+              ms (/ (bench-parse &input 5) 1000000.0)]
+          (println* n " keys: " ms "ms  (" (String.length &input) " bytes)"))))))

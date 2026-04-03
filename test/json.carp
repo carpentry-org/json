@@ -1,0 +1,768 @@
+(load "../json.carp")
+(load "Test.carp")
+(use Test)
+
+; ---------------------------------------------------------------------------
+; Helpers
+; ---------------------------------------------------------------------------
+
+(defn roundtrip [s]
+  (match (JSON.parse s)
+    (Result.Success j) (JSON.str &j)
+    (Result.Error e) (fmt "PARSE ERROR: %s" &e)))
+
+(defn parse-ok? [s]
+  (Result.success? &(JSON.parse s)))
+
+(defn parse-err? [s]
+  (Result.error? &(JSON.parse s)))
+
+; ---------------------------------------------------------------------------
+; Tests
+; ---------------------------------------------------------------------------
+
+(deftest test
+
+  ; =========================================================================
+  ; Primitives
+  ; =========================================================================
+
+  (assert-equal test
+    "null"
+    &(roundtrip "null")
+    "parse null")
+
+  (assert-equal test
+    "true"
+    &(roundtrip "true")
+    "parse true")
+
+  (assert-equal test
+    "false"
+    &(roundtrip "false")
+    "parse false")
+
+  ; =========================================================================
+  ; Numbers
+  ; =========================================================================
+
+  (assert-equal test
+    "0"
+    &(roundtrip "0")
+    "parse zero")
+
+  (assert-equal test
+    "1"
+    &(roundtrip "1")
+    "parse integer one")
+
+  (assert-equal test
+    "42"
+    &(roundtrip "42")
+    "parse integer")
+
+  (assert-equal test
+    "-1"
+    &(roundtrip "-1")
+    "parse negative integer")
+
+  (assert-equal test
+    "-0"
+    &(roundtrip "-0")
+    "parse negative zero")
+
+  (assert-equal test
+    "3.14"
+    &(roundtrip "3.14")
+    "parse decimal")
+
+  (assert-equal test
+    "-0.5"
+    &(roundtrip "-0.5")
+    "parse negative decimal")
+
+  (assert-equal test
+    "0.001"
+    &(roundtrip "0.001")
+    "parse small decimal")
+
+  (assert-true test
+    (parse-ok? "1e10")
+    "parse exponent notation")
+
+  (assert-true test
+    (parse-ok? "1E10")
+    "parse uppercase exponent")
+
+  (assert-true test
+    (parse-ok? "1e+10")
+    "parse exponent with plus")
+
+  (assert-true test
+    (parse-ok? "1e-10")
+    "parse exponent with minus")
+
+  (assert-true test
+    (parse-ok? "-2.5e+3")
+    "parse negative decimal with exponent")
+
+  (assert-true test
+    (parse-ok? "0.123e4")
+    "parse decimal with exponent")
+
+  ; Number errors
+
+  (assert-true test
+    (parse-err? "-")
+    "reject lone minus")
+
+  (assert-true test
+    (parse-err? "01")
+    "reject leading zero")
+
+  (assert-true test
+    (parse-err? ".5")
+    "reject leading dot")
+
+  (assert-true test
+    (parse-err? "1.")
+    "reject trailing dot")
+
+  (assert-true test
+    (parse-err? "1e")
+    "reject exponent without digits")
+
+  (assert-true test
+    (parse-err? "1e+")
+    "reject exponent sign without digits")
+
+  ; =========================================================================
+  ; Strings
+  ; =========================================================================
+
+  (assert-equal test
+    "\"hello\""
+    &(roundtrip "\"hello\"")
+    "parse simple string")
+
+  (assert-equal test
+    "\"\""
+    &(roundtrip "\"\"")
+    "parse empty string")
+
+  (assert-equal test
+    "\"hello world\""
+    &(roundtrip "\"hello world\"")
+    "parse string with space")
+
+  ; Escape sequences
+
+  (assert-equal test
+    "\"\\\\\""
+    &(roundtrip "\"\\\\\"")
+    "parse escaped backslash")
+
+  (assert-equal test
+    "\"\\n\""
+    &(roundtrip "\"\\n\"")
+    "parse escaped newline")
+
+  (assert-equal test
+    "\"\\r\""
+    &(roundtrip "\"\\r\"")
+    "parse escaped carriage return")
+
+  (assert-equal test
+    "\"\\t\""
+    &(roundtrip "\"\\t\"")
+    "parse escaped tab")
+
+  (assert-equal test
+    "\"\\b\""
+    &(roundtrip "\"\\b\"")
+    "parse escaped backspace")
+
+  (assert-equal test
+    "\"\\f\""
+    &(roundtrip "\"\\f\"")
+    "parse escaped form feed")
+
+  (assert-equal test
+    "\"a\\\"b\""
+    &(roundtrip "\"a\\\"b\"")
+    "parse escaped quote in middle")
+
+  (assert-equal test
+    "\"line1\\nline2\\ttab\""
+    &(roundtrip "\"line1\\nline2\\ttab\"")
+    "parse multiple escapes in one string")
+
+  ; Unicode escapes
+
+  (assert-true test
+    (parse-ok? "\"\\u0041\"")
+    "parse unicode escape for A")
+
+  (assert-true test
+    (match (JSON.parse "\"\\u0041\"")
+      (Result.Success j)
+        (match (JSON.as-str &j)
+          (Maybe.Just s) (= &s "A")
+          _ false)
+      _ false)
+    "unicode \\u0041 decodes to A")
+
+  (assert-true test
+    (match (JSON.parse "\"\\u00e9\"")
+      (Result.Success j)
+        (match (JSON.as-str &j)
+          (Maybe.Just s) (= (String.length &s) 2)
+          _ false)
+      _ false)
+    "unicode \\u00e9 produces 2-byte UTF-8")
+
+  ; Surrogate pairs (U+1F600 = grinning face = \uD83D\uDE00)
+  (assert-true test
+    (match (JSON.parse "\"\\uD83D\\uDE00\"")
+      (Result.Success j)
+        (match (JSON.as-str &j)
+          (Maybe.Just s) (= (String.length &s) 4)
+          _ false)
+      _ false)
+    "surrogate pair produces 4-byte UTF-8")
+
+  ; String errors
+
+  (assert-true test
+    (parse-err? "\"unterminated")
+    "reject unterminated string")
+
+  (assert-true test
+    (parse-err? "\"bad\\x\"")
+    "reject invalid escape character")
+
+  (assert-true test
+    (parse-err? "\"bad\\uZZZZ\"")
+    "reject invalid unicode hex digits")
+
+  (assert-true test
+    (parse-err? "\"bad\\uD800\"")
+    "reject lone high surrogate")
+
+  (assert-true test
+    (parse-err? "\"bad\\uD800\\u0041\"")
+    "reject high surrogate followed by non-low-surrogate")
+
+  ; =========================================================================
+  ; Arrays
+  ; =========================================================================
+
+  (assert-equal test
+    "[]"
+    &(roundtrip "[]")
+    "parse empty array")
+
+  (assert-equal test
+    "[1]"
+    &(roundtrip "[1]")
+    "parse single-element array")
+
+  (assert-equal test
+    "[1,2,3]"
+    &(roundtrip "[1,2,3]")
+    "parse multi-element array")
+
+  (assert-equal test
+    "[1,\"two\",true,null]"
+    &(roundtrip "[1, \"two\", true, null]")
+    "parse mixed-type array")
+
+  (assert-equal test
+    "[[1,2],[3,4]]"
+    &(roundtrip "[[1,2],[3,4]]")
+    "parse nested arrays")
+
+  (assert-equal test
+    "[[[]]]"
+    &(roundtrip "[[[]]]")
+    "parse deeply nested empty arrays")
+
+  ; Array whitespace
+
+  (assert-equal test
+    "[1,2,3]"
+    &(roundtrip "[ 1 , 2 , 3 ]")
+    "parse array with whitespace")
+
+  (assert-equal test
+    "[1,2]"
+    &(roundtrip "[\n  1,\n  2\n]")
+    "parse array with newlines")
+
+  ; Array errors
+
+  (assert-true test
+    (parse-err? "[")
+    "reject unterminated array")
+
+  (assert-true test
+    (parse-err? "[1,]")
+    "reject trailing comma in array")
+
+  (assert-true test
+    (parse-err? "[1 2]")
+    "reject missing comma in array")
+
+  ; =========================================================================
+  ; Objects
+  ; =========================================================================
+
+  (assert-equal test
+    "{}"
+    &(roundtrip "{}")
+    "parse empty object")
+
+  (assert-true test
+    (parse-ok? "{\"a\":1}")
+    "parse single-key object")
+
+  (assert-true test
+    (parse-ok? "{\"a\":1,\"b\":2}")
+    "parse multi-key object")
+
+  (assert-true test
+    (parse-ok? "{\"a\":{\"b\":{\"c\":true}}}")
+    "parse nested objects")
+
+  (assert-true test
+    (parse-ok? "{\"arr\":[1,2],\"obj\":{\"x\":\"y\"}}")
+    "parse object with mixed values")
+
+  ; Object whitespace
+
+  (assert-true test
+    (parse-ok? "{ \"a\" : 1 , \"b\" : 2 }")
+    "parse object with whitespace")
+
+  (assert-true test
+    (parse-ok? "{\n  \"a\": 1,\n  \"b\": 2\n}")
+    "parse object with newlines")
+
+  ; Object value access after parse
+
+  (assert-true test
+    (match (JSON.parse "{\"x\":42}")
+      (Result.Success j)
+        (match (JSON.get &j "x")
+          (Maybe.Just v) (JSON.num? &v)
+          _ false)
+      _ false)
+    "object lookup finds value")
+
+  (assert-true test
+    (match (JSON.parse "{\"x\":42}")
+      (Result.Success j)
+        (Maybe.nothing? &(JSON.get &j "y"))
+      _ false)
+    "object lookup returns Nothing for missing key")
+
+  ; Object errors
+
+  (assert-true test
+    (parse-err? "{")
+    "reject unterminated object")
+
+  (assert-true test
+    (parse-err? "{\"a\"}")
+    "reject object key without colon")
+
+  (assert-true test
+    (parse-err? "{\"a\":}")
+    "reject object key without value")
+
+  (assert-true test
+    (parse-err? "{\"a\":1,}")
+    "reject trailing comma in object")
+
+  (assert-true test
+    (parse-err? "{1:2}")
+    "reject non-string key in object")
+
+  ; =========================================================================
+  ; Whitespace handling
+  ; =========================================================================
+
+  (assert-equal test
+    "null"
+    &(roundtrip "  null  ")
+    "parse with leading and trailing whitespace")
+
+  (assert-equal test
+    "true"
+    &(roundtrip "\t\n\r true\t\n\r ")
+    "parse with mixed whitespace")
+
+  ; =========================================================================
+  ; Parse errors -- general
+  ; =========================================================================
+
+  (assert-true test
+    (parse-err? "")
+    "reject empty input")
+
+  (assert-true test
+    (parse-err? "   ")
+    "reject whitespace-only input")
+
+  (assert-true test
+    (parse-err? "nul")
+    "reject truncated null")
+
+  (assert-true test
+    (parse-err? "tru")
+    "reject truncated true")
+
+  (assert-true test
+    (parse-err? "fals")
+    "reject truncated false")
+
+  (assert-true test
+    (parse-err? "null null")
+    "reject trailing content after valid value")
+
+  (assert-true test
+    (parse-err? "undefined")
+    "reject undefined")
+
+  (assert-true test
+    (parse-err? "'single'")
+    "reject single-quoted string")
+
+  ; =========================================================================
+  ; Serializer (str)
+  ; =========================================================================
+
+  (assert-equal test
+    "null"
+    &(JSON.str &(JSON.Null))
+    "str null")
+
+  (assert-equal test
+    "true"
+    &(JSON.str &(JSON.Bool true))
+    "str true")
+
+  (assert-equal test
+    "false"
+    &(JSON.str &(JSON.Bool false))
+    "str false")
+
+  (assert-equal test
+    "42"
+    &(JSON.str &(JSON.Num 42.0))
+    "str integer number")
+
+  (assert-equal test
+    "3.14"
+    &(JSON.str &(JSON.Num 3.14))
+    "str decimal number")
+
+  (assert-equal test
+    "\"hello\""
+    &(JSON.str &(JSON.Str @"hello"))
+    "str simple string")
+
+  (assert-equal test
+    "\"he said \\\"hi\\\"\""
+    &(JSON.str &(JSON.Str @"he said \"hi\""))
+    "str string with quotes")
+
+  (assert-equal test
+    "\"back\\\\slash\""
+    &(JSON.str &(JSON.Str @"back\\slash"))
+    "str string with backslash")
+
+  (assert-equal test
+    "\"line\\nbreak\""
+    &(JSON.str &(JSON.Str @"line\nbreak"))
+    "str string with newline")
+
+  (assert-equal test
+    "\"tab\\there\""
+    &(JSON.str &(JSON.Str @"tab\there"))
+    "str string with tab")
+
+  (assert-equal test
+    "[]"
+    &(JSON.str &(JSON.Arr (the (Array (Box JSON)) [])))
+    "str empty array")
+
+  (assert-equal test
+    "[1,2,3]"
+    &(JSON.str &(JSON.Arr [(Box.init (JSON.Num 1.0))
+                            (Box.init (JSON.Num 2.0))
+                            (Box.init (JSON.Num 3.0))]))
+    "str number array")
+
+  (assert-equal test
+    "{}"
+    &(JSON.str &(JSON.Obj (the (Map String (Box JSON)) {})))
+    "str empty object")
+
+  ; Control character escaping
+  (assert-true test
+    (let [s (JSON.str &(JSON.Str (String.from-chars &[(Char.from-int 1)])))]
+      (= &s "\"\\u0001\""))
+    "str escapes control char 1 as \\u0001")
+
+  (assert-true test
+    (let [s (JSON.str &(JSON.Str (String.from-chars &[(Char.from-int 31)])))]
+      (= &s "\"\\u001f\""))
+    "str escapes control char 31 as \\u001f")
+
+  ; =========================================================================
+  ; Type predicates
+  ; =========================================================================
+
+  (assert-true test
+    (JSON.null? &(JSON.Null))
+    "null? on Null")
+
+  (assert-false test
+    (JSON.null? &(JSON.Bool true))
+    "null? on non-Null")
+
+  (assert-true test
+    (JSON.bool? &(JSON.Bool false))
+    "bool? on Bool")
+
+  (assert-false test
+    (JSON.bool? &(JSON.Null))
+    "bool? on non-Bool")
+
+  (assert-true test
+    (JSON.num? &(JSON.Num 1.0))
+    "num? on Num")
+
+  (assert-false test
+    (JSON.num? &(JSON.Str @"1"))
+    "num? on non-Num")
+
+  (assert-true test
+    (JSON.str? &(JSON.Str @"x"))
+    "str? on Str")
+
+  (assert-false test
+    (JSON.str? &(JSON.Num 1.0))
+    "str? on non-Str")
+
+  (assert-true test
+    (JSON.arr? &(JSON.Arr (the (Array (Box JSON)) [])))
+    "arr? on Arr")
+
+  (assert-false test
+    (JSON.arr? &(JSON.Null))
+    "arr? on non-Arr")
+
+  (assert-true test
+    (JSON.obj? &(JSON.Obj (the (Map String (Box JSON)) {})))
+    "obj? on Obj")
+
+  (assert-false test
+    (JSON.obj? &(JSON.Arr (the (Array (Box JSON)) [])))
+    "obj? on non-Obj")
+
+  ; =========================================================================
+  ; Value extractors
+  ; =========================================================================
+
+  (assert-equal test
+    true
+    (Maybe.from (JSON.as-bool &(JSON.Bool true)) false)
+    "as-bool extracts true")
+
+  (assert-equal test
+    false
+    (Maybe.from (JSON.as-bool &(JSON.Bool false)) true)
+    "as-bool extracts false")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.as-bool &(JSON.Null)))
+    "as-bool returns Nothing for non-Bool")
+
+  (assert-equal test
+    42.0
+    (Maybe.from (JSON.as-num &(JSON.Num 42.0)) 0.0)
+    "as-num extracts number")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.as-num &(JSON.Str @"42")))
+    "as-num returns Nothing for non-Num")
+
+  (assert-true test
+    (match (JSON.as-str &(JSON.Str @"hi"))
+      (Maybe.Just s) (= &s "hi")
+      _ false)
+    "as-str extracts string")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.as-str &(JSON.Num 1.0)))
+    "as-str returns Nothing for non-Str")
+
+  (assert-true test
+    (match (JSON.as-arr &(JSON.Arr [(Box.init (JSON.Num 1.0))]))
+      (Maybe.Just a) (= (Array.length &a) 1)
+      _ false)
+    "as-arr extracts array")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.as-arr &(JSON.Null)))
+    "as-arr returns Nothing for non-Arr")
+
+  (assert-true test
+    (match (JSON.as-obj &(JSON.Obj (the (Map String (Box JSON)) {})))
+      (Maybe.Just m) (Map.empty? &m)
+      _ false)
+    "as-obj extracts object")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.as-obj &(JSON.Arr (the (Array (Box JSON)) []))))
+    "as-obj returns Nothing for non-Obj")
+
+  ; =========================================================================
+  ; Accessors -- get, nth, get-in
+  ; =========================================================================
+
+  ; get
+  (assert-true test
+    (let [j (JSON.obj [(JSON.entry @"a" (JSON.Num 1.0))
+                       (JSON.entry @"b" (JSON.Str @"two"))])]
+      (match (JSON.get &j "a")
+        (Maybe.Just v) (JSON.num? &v)
+        _ false))
+    "get finds existing key")
+
+  (assert-true test
+    (let [j (JSON.obj [(JSON.entry @"a" (JSON.Num 1.0))])]
+      (Maybe.nothing? &(JSON.get &j "z")))
+    "get returns Nothing for missing key")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.get &(JSON.Arr (the (Array (Box JSON)) [])) "x"))
+    "get returns Nothing for non-object")
+
+  ; nth
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Num 10.0))
+                        (Box.init (JSON.Num 20.0))
+                        (Box.init (JSON.Num 30.0))])]
+      (match (JSON.nth &j 1)
+        (Maybe.Just v) (JSON.num? &v)
+        _ false))
+    "nth finds element at index")
+
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Num 1.0))])]
+      (Maybe.nothing? &(JSON.nth &j 5)))
+    "nth returns Nothing for out-of-bounds")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.nth &(JSON.Null) 0))
+    "nth returns Nothing for non-array")
+
+  ; get-in
+  (assert-true test
+    (match (JSON.parse "{\"a\":{\"b\":{\"c\":99}}}")
+      (Result.Success j)
+        (match (JSON.get-in &j &[@"a" @"b" @"c"])
+          (Maybe.Just v) (JSON.num? &v)
+          _ false)
+      _ false)
+    "get-in traverses nested objects")
+
+  (assert-true test
+    (match (JSON.parse "{\"a\":{\"b\":1}}")
+      (Result.Success j)
+        (Maybe.nothing? &(JSON.get-in &j &[@"a" @"z"]))
+      _ false)
+    "get-in returns Nothing on missing intermediate key")
+
+  (assert-true test
+    (match (JSON.parse "{\"a\":1}")
+      (Result.Success j)
+        (Maybe.nothing? &(JSON.get-in &j &[@"a" @"b"]))
+      _ false)
+    "get-in returns Nothing when traversing non-object")
+
+  ; =========================================================================
+  ; Constructors
+  ; =========================================================================
+
+  (assert-true test
+    (let [j (JSON.obj [])]
+      (JSON.obj? &j))
+    "obj with empty entries builds object")
+
+  (assert-equal test
+    "{}"
+    &(JSON.str &(JSON.obj []))
+    "obj with empty entries serializes to {}")
+
+  (assert-true test
+    (let [j (JSON.obj [(JSON.entry @"x" (JSON.Bool true))])]
+      (match (JSON.get &j "x")
+        (Maybe.Just v) (JSON.bool? &v)
+        _ false))
+    "obj builds object accessible via get")
+
+  ; =========================================================================
+  ; Roundtrip: parse then str then parse again
+  ; =========================================================================
+
+  (assert-true test
+    (let [input "{\"name\":\"carp\",\"version\":1,\"features\":[\"types\",\"macros\"],\"meta\":{\"stable\":true}}"
+          pass1 (JSON.parse input)]
+      (match pass1
+        (Result.Success j1)
+          (let [serialized (JSON.str &j1)
+                pass2 (JSON.parse &serialized)]
+            (match pass2
+              (Result.Success j2) (= &(JSON.str &j1) &(JSON.str &j2))
+              _ false))
+        _ false))
+    "parse-str-parse roundtrip preserves structure")
+
+  ; =========================================================================
+  ; Complex / realistic JSON
+  ; =========================================================================
+
+  (assert-true test
+    (parse-ok? "{\"users\":[{\"id\":1,\"name\":\"Alice\",\"active\":true},{\"id\":2,\"name\":\"Bob\",\"active\":false}],\"total\":2}")
+    "parse realistic API response")
+
+  (assert-true test
+    (parse-ok? "[null,true,false,0,1,-1,0.5,\"str\",[],{}]")
+    "parse array of every value type")
+
+  (assert-true test
+    (parse-ok? "{\"escaped\":\"tab\\there\\nnewline\\r\\nand \\\"quotes\\\"\"}")
+    "parse object with escaped string values")
+
+  (assert-true test
+    (parse-ok? "[[[[[[1]]]]]]")
+    "parse deeply nested arrays")
+
+  (assert-true test
+    (parse-ok? "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":\"deep\"}}}}}")
+    "parse deeply nested objects")
+
+  ; Duplicate keys -- last value wins (Map.put behavior)
+  (assert-true test
+    (match (JSON.parse "{\"a\":1,\"a\":2}")
+      (Result.Success j)
+        (match (JSON.get &j "a")
+          (Maybe.Just v) (= &(JSON.str &v) "2")
+          _ false)
+      _ false)
+    "duplicate keys: last value wins")
+)
