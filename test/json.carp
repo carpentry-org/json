@@ -6,16 +6,26 @@
 ; Helpers
 ; ---------------------------------------------------------------------------
 
+(defn ser [j]
+  (match (JSON.str j)
+    (Result.Success s) s
+    (Result.Error e) (fmt "SERIALIZE ERROR: %s" &(JSON.serialize-error-str &e))))
+
 (defn roundtrip [s]
   (match (JSON.parse s)
-    (Result.Success j) (JSON.str &j)
-    (Result.Error e) (fmt "PARSE ERROR: %s" &e)))
+    (Result.Success j) (ser &j)
+    (Result.Error e) (fmt "PARSE ERROR: %s" &(JSON.parse-error-str &e))))
 
 (defn parse-ok? [s]
   (Result.success? &(JSON.parse s)))
 
 (defn parse-err? [s]
   (Result.error? &(JSON.parse s)))
+
+(defn err-kind [s]
+  (match (JSON.parse s)
+    (Result.Error e) (Maybe.Just @(JSON.ParseError.kind &e))
+    _ (Maybe.Nothing)))
 
 ; ---------------------------------------------------------------------------
 ; Tests
@@ -444,79 +454,79 @@
 
   (assert-equal test
     "null"
-    &(JSON.str &(JSON.Null))
+    &(ser &(JSON.Null))
     "str null")
 
   (assert-equal test
     "true"
-    &(JSON.str &(JSON.Bool true))
+    &(ser &(JSON.Bool true))
     "str true")
 
   (assert-equal test
     "false"
-    &(JSON.str &(JSON.Bool false))
+    &(ser &(JSON.Bool false))
     "str false")
 
   (assert-equal test
     "42"
-    &(JSON.str &(JSON.Num 42.0))
+    &(ser &(JSON.Num 42.0))
     "str integer number")
 
   (assert-equal test
     "3.14"
-    &(JSON.str &(JSON.Num 3.14))
+    &(ser &(JSON.Num 3.14))
     "str decimal number")
 
   (assert-equal test
     "\"hello\""
-    &(JSON.str &(JSON.Str @"hello"))
+    &(ser &(JSON.Str @"hello"))
     "str simple string")
 
   (assert-equal test
     "\"he said \\\"hi\\\"\""
-    &(JSON.str &(JSON.Str @"he said \"hi\""))
+    &(ser &(JSON.Str @"he said \"hi\""))
     "str string with quotes")
 
   (assert-equal test
     "\"back\\\\slash\""
-    &(JSON.str &(JSON.Str @"back\\slash"))
+    &(ser &(JSON.Str @"back\\slash"))
     "str string with backslash")
 
   (assert-equal test
     "\"line\\nbreak\""
-    &(JSON.str &(JSON.Str @"line\nbreak"))
+    &(ser &(JSON.Str @"line\nbreak"))
     "str string with newline")
 
   (assert-equal test
     "\"tab\\there\""
-    &(JSON.str &(JSON.Str @"tab\there"))
+    &(ser &(JSON.Str @"tab\there"))
     "str string with tab")
 
   (assert-equal test
     "[]"
-    &(JSON.str &(JSON.Arr (the (Array (Box JSON)) [])))
+    &(ser &(JSON.Arr (the (Array (Box JSON)) [])))
     "str empty array")
 
   (assert-equal test
     "[1,2,3]"
-    &(JSON.str &(JSON.Arr [(Box.init (JSON.Num 1.0))
+    &(ser &(JSON.Arr [(Box.init (JSON.Num 1.0))
                             (Box.init (JSON.Num 2.0))
                             (Box.init (JSON.Num 3.0))]))
     "str number array")
 
   (assert-equal test
     "{}"
-    &(JSON.str &(JSON.Obj (the (Map String (Box JSON)) {})))
+    &(ser &(JSON.Obj (the (Map String (Box JSON)) {})))
     "str empty object")
 
   ; Control character escaping
   (assert-true test
-    (let [s (JSON.str &(JSON.Str (String.from-chars &[(Char.from-int 1)])))]
+    (let [s (ser &(JSON.Str (String.from-chars &[(Char.from-int 1)])))]
       (= &s "\"\\u0001\""))
     "str escapes control char 1 as \\u0001")
 
   (assert-true test
-    (let [s (JSON.str &(JSON.Str (String.from-chars &[(Char.from-int 31)])))]
+    (let [s (ser &(JSON.Str (String.from-chars &[(Char.from-int 31)])))]
       (= &s "\"\\u001f\""))
     "str escapes control char 31 as \\u001f")
 
@@ -705,7 +715,7 @@
 
   (assert-equal test
     "{}"
-    &(JSON.str &(JSON.obj []))
+    &(ser &(JSON.obj []))
     "obj with empty entries serializes to {}")
 
   (assert-true test
@@ -724,10 +734,10 @@
           pass1 (JSON.parse input)]
       (match pass1
         (Result.Success j1)
-          (let [serialized (JSON.str &j1)
+          (let [serialized (ser &j1)
                 pass2 (JSON.parse &serialized)]
             (match pass2
-              (Result.Success j2) (= &(JSON.str &j1) &(JSON.str &j2))
+              (Result.Success j2) (= &(ser &j1) &(ser &j2))
               _ false))
         _ false))
     "parse-str-parse roundtrip preserves structure")
@@ -761,8 +771,168 @@
     (match (JSON.parse "{\"a\":1,\"a\":2}")
       (Result.Success j)
         (match (JSON.get &j "a")
-          (Maybe.Just v) (= &(JSON.str &v) "2")
+          (Maybe.Just v) (= &(ser &v) "2")
           _ false)
       _ false)
     "duplicate keys: last value wins")
+
+  ; =========================================================================
+  ; Parse error kinds
+  ; =========================================================================
+
+  (assert-true test
+    (match (err-kind "")
+      (Maybe.Just (JSON.ParseErrorKind.UnexpectedEof)) true
+      _ false)
+    "empty input gives UnexpectedEof")
+
+  (assert-true test
+    (match (err-kind "%")
+      (Maybe.Just (JSON.ParseErrorKind.UnexpectedChar c)) (= c \%)
+      _ false)
+    "garbage start gives UnexpectedChar with the offending char")
+
+  (assert-true test
+    (match (err-kind "\"unterminated")
+      (Maybe.Just (JSON.ParseErrorKind.UnterminatedString)) true
+      _ false)
+    "unterminated string gives UnterminatedString")
+
+  (assert-true test
+    (match (err-kind "[1,2")
+      (Maybe.Just (JSON.ParseErrorKind.UnterminatedArray)) true
+      _ false)
+    "unterminated array gives UnterminatedArray")
+
+  (assert-true test
+    (match (err-kind "{\"a\":1")
+      (Maybe.Just (JSON.ParseErrorKind.UnterminatedObject)) true
+      _ false)
+    "unterminated object gives UnterminatedObject")
+
+  (assert-true test
+    (match (err-kind "{\"a\"}")
+      (Maybe.Just (JSON.ParseErrorKind.ExpectedColon)) true
+      _ false)
+    "missing colon gives ExpectedColon")
+
+  (assert-true test
+    (match (err-kind "{1:2}")
+      (Maybe.Just (JSON.ParseErrorKind.ExpectedStringKey)) true
+      _ false)
+    "non-string key gives ExpectedStringKey")
+
+  (assert-true test
+    (match (err-kind "null garbage")
+      (Maybe.Just (JSON.ParseErrorKind.TrailingContent)) true
+      _ false)
+    "trailing content gives TrailingContent")
+
+  (assert-true test
+    (match (err-kind "nul")
+      (Maybe.Just (JSON.ParseErrorKind.InvalidLiteral lit)) (= &lit "null")
+      _ false)
+    "truncated null gives InvalidLiteral with literal name")
+
+  (assert-true test
+    (match (err-kind "\"\\uD800\"")
+      (Maybe.Just (JSON.ParseErrorKind.LoneHighSurrogate)) true
+      _ false)
+    "lone high surrogate gives LoneHighSurrogate")
+
+  (assert-true test
+    (match (err-kind "\"\\uZZZZ\"")
+      (Maybe.Just (JSON.ParseErrorKind.InvalidUnicodeEscape)) true
+      _ false)
+    "invalid unicode hex gives InvalidUnicodeEscape")
+
+  (assert-true test
+    (match (err-kind "\"\\x\"")
+      (Maybe.Just (JSON.ParseErrorKind.InvalidEscape c)) (= c \x)
+      _ false)
+    "invalid escape gives InvalidEscape with the offending char")
+
+  ; Position tracking
+
+  (assert-true test
+    (match (JSON.parse "   %")
+      (Result.Error e) (= @(JSON.ParseError.position &e) 3)
+      _ false)
+    "error position points at offending byte")
+
+  ; parse-error-str produces a non-empty message
+
+  (assert-true test
+    (match (JSON.parse "")
+      (Result.Error e) (not (String.empty? &(JSON.parse-error-str &e)))
+      _ false)
+    "parse-error-str produces a non-empty message")
+
+  ; =========================================================================
+  ; Serialize errors
+  ; =========================================================================
+
+  (assert-true test
+    (let [nan (Double./ 0.0 0.0)]
+      (match (JSON.str &(JSON.Num nan))
+        (Result.Error e)
+          (match-ref &e
+            (JSON.SerializeError.NonFiniteNumber _) true)
+        _ false))
+    "NaN gives NonFiniteNumber serialize error")
+
+  (assert-true test
+    (let [inf (Double./ 1.0 0.0)]
+      (match (JSON.str &(JSON.Num inf))
+        (Result.Error e)
+          (match-ref &e
+            (JSON.SerializeError.NonFiniteNumber _) true)
+        _ false))
+    "infinity gives NonFiniteNumber serialize error")
+
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Num 1.0))
+                        (Box.init (JSON.Num (Double./ 0.0 0.0)))
+                        (Box.init (JSON.Num 3.0))])]
+      (Result.error? &(JSON.str &j)))
+    "NaN nested inside an array surfaces as a serialize error")
+
+  ; =========================================================================
+  ; to-json interface
+  ; =========================================================================
+
+  (assert-equal test
+    "true"
+    &(ser &(to-json true))
+    "to-json on Bool")
+
+  (assert-equal test
+    "42"
+    &(ser &(to-json 42))
+    "to-json on Int")
+
+  (assert-equal test
+    "3.14"
+    &(ser &(to-json 3.14))
+    "to-json on Double")
+
+  (assert-equal test
+    "\"hello\""
+    &(ser &(to-json @"hello"))
+    "to-json on String")
+
+  (assert-equal test
+    "[1,2,3]"
+    &(ser &(to-json [1 2 3]))
+    "to-json on Array of Int")
+
+  (assert-equal test
+    "[\"a\",\"b\"]"
+    &(ser &(to-json [@"a" @"b"]))
+    "to-json on Array of String")
+
+  (assert-equal test
+    "[[1,2],[3,4]]"
+    &(ser &(to-json [[1 2] [3 4]]))
+    "to-json on nested Array")
 )

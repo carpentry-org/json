@@ -10,16 +10,17 @@
 `JSON` is a sum type with six variants: `Null`, `Bool`, `Num`, `Str`, `Arr`,
 and `Obj`. Parse JSON strings with [`JSON.parse`](./JSON.html#parse), serialize
 with [`JSON.str`](./JSON.html#str), and access values with
-[`JSON.get`](./JSON.html#get) and [`JSON.nth`](./JSON.html#nth).
+[`JSON.get`](./JSON.html#get) and [`JSON.nth`](./JSON.html#nth). Convert
+native Carp values via the [`to-json`](./JSON.html#to-json) interface.
 
 ### Parsing
 ```
-(load \"git@github.com:carpentry-org/json@0.1.0\")
+(load \"git@github.com:carpentry-org/json@0.2.0\")
 
 (defn main []
   (match (JSON.parse \"{\\\"name\\\": \\\"carp\\\"}\")
     (Result.Success j) (println* &j)
-    (Result.Error e) (IO.errorln &e)))
+    (Result.Error e) (IO.errorln &(JSON.parse-error-str &e))))
 ```
 
 ### Building values
@@ -29,4 +30,6 @@ with [`JSON.str`](./JSON.html#str), and access values with
 ```")
 
 (save-docs JSON)
-(quit)
+;; Carp's save-docs hardcodes the index filename as <title>_index.html. We
+;; want it at docs/index.html, so rename in place.
+(defn main [] (System.system "mv ./docs/json_index.html ./docs/index.html"))

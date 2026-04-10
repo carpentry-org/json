@@ -30,7 +30,7 @@
 (defn must-parse [s]
   (match (JSON.parse s)
     (Result.Success j) j
-    (Result.Error e) (do (IO.errorln &e) (JSON.Null))))
+    (Result.Error e) (do (IO.errorln &(JSON.parse-error-str &e)) (JSON.Null))))
 
 ; ---------------------------------------------------------------------------
 ; Globals (filled by setup)
@@ -99,7 +99,10 @@
 
 (defn roundtrip-medium []
   (match (JSON.parse &medium-arr)
-    (Result.Success j) (ignore (JSON.parse &(JSON.str &j)))
+    (Result.Success j)
+      (match (JSON.str &j)
+        (Result.Success s) (ignore (JSON.parse &s))
+        _ ())
     _ ()))
 
 ; ---------------------------------------------------------------------------

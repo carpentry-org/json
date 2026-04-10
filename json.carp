@@ -3,7 +3,7 @@
 ## Installation
 
 ```
-(load \"git@github.com:carpentry-org/json@0.1.0\")
+(load \"git@github.com:carpentry-org/json@0.2.0\")
 ```
 
 ## Usage
@@ -12,7 +12,7 @@
 ; Parse JSON
 (match (JSON.parse \"{\\\"name\\\": \\\"carp\\\"}\")
   (Result.Success j) (println* &j)
-  (Result.Error e) (IO.errorln &e))
+  (Result.Error e) (IO.errorln &(JSON.parse-error-str &e)))
 
 ; Build JSON
 (def j (JSON.obj [(JSON.entry @\"name\" (JSON.Str @\"carp\"))
@@ -20,6 +20,9 @@
 
 ; Access values
 (JSON.get &j \"name\") ; => (Maybe.Just (JSON.Str \"carp\"))
+
+; Convert native values via to-json
+(to-json @\"hello\") ; => (JSON.Str \"hello\")
 ```")
 
 (defmodule String
@@ -34,6 +37,15 @@ This is O(b-a) rather than O(n) like `slice`.")
       (from-bytes &bytes)))
 )
 
+(defmodule Double
+  (register nan? (Fn [Double] Bool) "isnan")
+  (register inf? (Fn [Double] Bool) "isinf")
+)
+
+; ===========================================================================
+; Type definition
+; ===========================================================================
+
 (deftype JSON
   (Null [])
   (Bool [Bool])
@@ -43,14 +55,63 @@ This is O(b-a) rather than O(n) like `slice`.")
   (Obj [(Map String (Box JSON))]))
 
 ; ===========================================================================
-; Internal parser — all top-level to support mutual recursion via register.
+; Error types
+; ===========================================================================
+
+(defmodule JSON
+  (doc ParseErrorKind "describes the cause of a parse failure.
+
+The associated `ParseError` carries this together with the byte position
+where the error was detected.")
+  (deftype ParseErrorKind
+    (UnexpectedEof [])
+    (UnexpectedChar [Char])
+    (InvalidLiteral [String])
+    (InvalidNumber [String])
+    (InvalidEscape [Char])
+    (InvalidUnicodeEscape [])
+    (LoneHighSurrogate [])
+    (InvalidLowSurrogate [])
+    (UnterminatedString [])
+    (UnterminatedArray [])
+    (UnterminatedObject [])
+    (ExpectedColon [])
+    (ExpectedCommaOrEnd [])
+    (ExpectedStringKey [])
+    (TrailingContent []))
+
+  (doc ParseError "wraps a `ParseErrorKind` together with the byte position
+in the input where the error was detected.")
+  (deftype ParseError [position Int kind JSON.ParseErrorKind])
+
+  (doc SerializeError "describes the cause of a serialization failure.
+
+`NonFiniteNumber` is emitted when a `JSON.Num` contains NaN or infinity,
+neither of which is representable in JSON.")
+  (deftype SerializeError
+    (NonFiniteNumber [Double]))
+)
+
+; ===========================================================================
+; Internal parser state
 ;
-; Parse position is threaded via mutable globals (json-idx, json-len) instead
-; of Pair return values, eliminating deep copies at every parse call.
+; Position is threaded via mutable globals to avoid Pair return values
+; and the deep copies they would imply at every recursive call.
+; Errors are reported via *parse-error*; parser functions return placeholder
+; values on the error path and callers must check json-failed? before
+; consuming the result.
 ; ===========================================================================
 
 (def json-idx 0)
 (def json-len 0)
+(def *parse-error* (the (Maybe JSON.ParseError) (Maybe.Nothing)))
+(def *serialize-error* (the (Maybe JSON.SerializeError) (Maybe.Nothing)))
+
+(defn json-set-err! [kind]
+  (set! *parse-error* (Maybe.Just (JSON.ParseError.init json-idx kind))))
+
+(defn json-failed? []
+  (Maybe.just? &*parse-error*))
 
 (defn json-skip-ws [s]
   (while (< json-idx json-len)
@@ -71,19 +132,16 @@ This is O(b-a) rather than O(n) like `slice`.")
 
 (defn json-read-hex4 [s]
   (if (> (+ json-idx 4) json-len)
-    (Result.Error @"unexpected end of input in unicode escape")
-    (let-do [val 0
-             failed false]
+    (do (json-set-err! (JSON.ParseErrorKind.InvalidUnicodeEscape)) 0)
+    (let-do [val 0]
       (for [k 0 4]
         (let [h (json-hex-val (String.char-at s (+ json-idx k)))]
           (if (= h -1)
-            (do (set! failed true) (break))
+            (do (json-set-err! (JSON.ParseErrorKind.InvalidUnicodeEscape)) (break))
             (set! val (+ (* val 16) h)))))
-      (if failed
-        (Result.Error (fmt "invalid hex digit in unicode escape at %d" json-idx))
-        (do
-          (set! json-idx (+ json-idx 4))
-          (Result.Success val))))))
+      (if (json-failed?)
+        0
+        (do (set! json-idx (+ json-idx 4)) val)))))
 
 (defn json-codepoint-to-bytes [cp]
   (cond
@@ -106,15 +164,19 @@ This is O(b-a) rather than O(n) like `slice`.")
     (for [k 0 (Array.length &uc)]
       (Array.push-back! bytes @(Array.unsafe-nth &uc k)))))
 
+(defn json-emit-escape! [bytes b]
+  (do
+    (Array.push-back! bytes b)
+    (set! json-idx (Int.inc json-idx))))
+
 (defn json-parse-str-raw [s]
   (if (or (>= json-idx json-len) (/= (String.char-at s json-idx) \"))
-    (Result.Error (fmt "expected '\"' at position %d" json-idx))
-    (let-do [bytes (the (Array Byte) [])
-             failed @""]
+    (do (json-set-err! (JSON.ParseErrorKind.ExpectedStringKey)) @"")
+    (let-do [bytes (the (Array Byte) [])]
       (set! json-idx (Int.inc json-idx))
       (while true
         (if (>= json-idx json-len)
-          (do (set! failed @"unterminated string") (break))
+          (do (json-set-err! (JSON.ParseErrorKind.UnterminatedString)) (break))
           (let [c (String.char-at s json-idx)]
             (cond
               (= c \")
@@ -123,91 +185,75 @@ This is O(b-a) rather than O(n) like `slice`.")
                 (do
                   (set! json-idx (Int.inc json-idx))
                   (if (>= json-idx json-len)
-                    (do (set! failed @"unterminated escape in string") (break))
+                    (do (json-set-err! (JSON.ParseErrorKind.UnterminatedString)) (break))
                     (let [e (String.char-at s json-idx)]
                       (cond
-                        (= e \")
-                          (do (Array.push-back! &bytes (Char.to-byte \"))
-                              (set! json-idx (Int.inc json-idx)))
-                        (= e \\)
-                          (do (Array.push-back! &bytes (Char.to-byte \\))
-                              (set! json-idx (Int.inc json-idx)))
-                        (= e \/)
-                          (do (Array.push-back! &bytes (Char.to-byte \/))
-                              (set! json-idx (Int.inc json-idx)))
-                        (= e \b)
-                          (do (Array.push-back! &bytes (Char.to-byte \backspace))
-                              (set! json-idx (Int.inc json-idx)))
-                        (= e \f)
-                          (do (Array.push-back! &bytes (Char.to-byte \formfeed))
-                              (set! json-idx (Int.inc json-idx)))
-                        (= e \n)
-                          (do (Array.push-back! &bytes (Char.to-byte \newline))
-                              (set! json-idx (Int.inc json-idx)))
-                        (= e \r)
-                          (do (Array.push-back! &bytes (Char.to-byte \return))
-                              (set! json-idx (Int.inc json-idx)))
-                        (= e \t)
-                          (do (Array.push-back! &bytes (Char.to-byte \tab))
-                              (set! json-idx (Int.inc json-idx)))
+                        (= e \")  (json-emit-escape! &bytes (Char.to-byte \"))
+                        (= e \\)  (json-emit-escape! &bytes (Char.to-byte \\))
+                        (= e \/)  (json-emit-escape! &bytes (Char.to-byte \/))
+                        (= e \b)  (json-emit-escape! &bytes (Char.to-byte \backspace))
+                        (= e \f)  (json-emit-escape! &bytes (Char.to-byte \formfeed))
+                        (= e \n)  (json-emit-escape! &bytes (Char.to-byte \newline))
+                        (= e \r)  (json-emit-escape! &bytes (Char.to-byte \return))
+                        (= e \t)  (json-emit-escape! &bytes (Char.to-byte \tab))
                         (= e \u)
                           (do
                             (set! json-idx (Int.inc json-idx))
-                            (match (json-read-hex4 s)
-                              (Result.Error err)
-                                (do (set! failed err) (break))
-                              (Result.Success cp)
+                            (let [cp (json-read-hex4 s)]
+                              (if (json-failed?)
+                                (break)
                                 (if (and (>= cp 55296) (<= cp 56319))
                                   (if (and (< (Int.inc json-idx) json-len)
                                            (and (= (String.char-at s json-idx) \\)
                                                 (= (String.char-at s (Int.inc json-idx)) \u)))
                                     (do
                                       (set! json-idx (+ json-idx 2))
-                                      (match (json-read-hex4 s)
-                                        (Result.Error err)
-                                          (do (set! failed err) (break))
-                                        (Result.Success low)
+                                      (let [low (json-read-hex4 s)]
+                                        (if (json-failed?)
+                                          (break)
                                           (if (and (>= low 56320) (<= low 57343))
                                             (let [full-cp (+ (+ (* (- cp 55296) 1024)
                                                                    (- low 56320))
                                                                65536)]
                                               (json-push-codepoint! &bytes full-cp))
-                                            (do (set! failed @"invalid low surrogate")
-                                                (break)))))
-                                    (do (set! failed @"expected low surrogate after high surrogate")
+                                            (do (json-set-err! (JSON.ParseErrorKind.InvalidLowSurrogate))
+                                                (break))))))
+                                    (do (json-set-err! (JSON.ParseErrorKind.LoneHighSurrogate))
                                         (break)))
-                                  (json-push-codepoint! &bytes cp))))
-                        (do (set! failed
-                              (fmt "invalid escape character '\\%s'" &(Char.str e)))
+                                  (json-push-codepoint! &bytes cp)))))
+                        (do (json-set-err! (JSON.ParseErrorKind.InvalidEscape e))
                             (break))))))
               (do (Array.push-back! &bytes (Char.to-byte c))
                   (set! json-idx (Int.inc json-idx)))))))
-      (if (String.empty? &failed)
-        (Result.Success (String.from-bytes &bytes))
-        (Result.Error failed)))))
+      (String.from-bytes &bytes))))
+
+(defn json-expect-digit! [s]
+  (if (>= json-idx json-len)
+    (json-set-err! (JSON.ParseErrorKind.UnexpectedEof))
+    (when (not (Char.num? (String.char-at s json-idx)))
+      (json-set-err! (JSON.ParseErrorKind.UnexpectedChar (String.char-at s json-idx))))))
+
+(defn json-skip-digits [s]
+  (while (and (< json-idx json-len) (Char.num? (String.char-at s json-idx)))
+    (set! json-idx (Int.inc json-idx))))
 
 (defn json-parse-number [s]
-  (let-do [start json-idx
-           failed @""]
+  (let-do [start json-idx]
     (when (and (< json-idx json-len) (= (String.char-at s json-idx) \-))
       (set! json-idx (Int.inc json-idx)))
-    (if (>= json-idx json-len)
-      (set! failed @"unexpected end of input in number")
+    (json-expect-digit! s)
+    (when (not (json-failed?))
       (if (= (String.char-at s json-idx) \0)
         (set! json-idx (Int.inc json-idx))
-        (if (Char.num? (String.char-at s json-idx))
-          (while (and (< json-idx json-len) (Char.num? (String.char-at s json-idx)))
-            (set! json-idx (Int.inc json-idx)))
-          (set! failed (fmt "expected digit at position %d" json-idx)))))
-    (when (and (String.empty? &failed)
+        (json-skip-digits s)))
+    (when (and (not (json-failed?))
                (and (< json-idx json-len) (= (String.char-at s json-idx) \.)))
       (do
         (set! json-idx (Int.inc json-idx))
-        (if (or (>= json-idx json-len) (not (Char.num? (String.char-at s json-idx))))
-          (set! failed @"expected digit after decimal point")
-          (while (and (< json-idx json-len) (Char.num? (String.char-at s json-idx)))
-            (set! json-idx (Int.inc json-idx))))))
-    (when (and (String.empty? &failed)
+        (json-expect-digit! s)
+        (when (not (json-failed?))
+          (json-skip-digits s))))
+    (when (and (not (json-failed?))
                (and (< json-idx json-len)
                     (or (= (String.char-at s json-idx) \e)
                         (= (String.char-at s json-idx) \E))))
@@ -217,18 +263,17 @@ This is O(b-a) rather than O(n) like `slice`.")
                    (or (= (String.char-at s json-idx) \+)
                        (= (String.char-at s json-idx) \-)))
           (set! json-idx (Int.inc json-idx)))
-        (if (or (>= json-idx json-len) (not (Char.num? (String.char-at s json-idx))))
-          (set! failed @"expected digit in exponent")
-          (while (and (< json-idx json-len) (Char.num? (String.char-at s json-idx)))
-            (set! json-idx (Int.inc json-idx))))))
-    (if (not (String.empty? &failed))
-      (Result.Error failed)
-      (let [num-str &(String.byte-slice s start json-idx)]
-        (match (Double.from-string num-str)
-          (Maybe.Just d)
-            (Result.Success (JSON.Num d))
+        (json-expect-digit! s)
+        (when (not (json-failed?))
+          (json-skip-digits s))))
+    (if (json-failed?)
+      (JSON.Null)
+      (let [num-str (String.byte-slice s start json-idx)]
+        (match (Double.from-string &num-str)
+          (Maybe.Just d) (JSON.Num d)
           (Maybe.Nothing)
-            (Result.Error (fmt "invalid number '%s'" num-str)))))))
+            (do (json-set-err! (JSON.ParseErrorKind.InvalidNumber num-str))
+                (JSON.Null)))))))
 
 (defn json-parse-null [s]
   (if (and (<= (+ json-idx 4) json-len)
@@ -237,8 +282,9 @@ This is O(b-a) rather than O(n) like `slice`.")
                      (and (= (String.char-at s (+ json-idx 2)) \l)
                           (= (String.char-at s (+ json-idx 3)) \l)))))
     (do (set! json-idx (+ json-idx 4))
-        (Result.Success (JSON.Null)))
-    (Result.Error (fmt "expected 'null' at position %d" json-idx))))
+        (JSON.Null))
+    (do (json-set-err! (JSON.ParseErrorKind.InvalidLiteral @"null"))
+        (JSON.Null))))
 
 (defn json-parse-true [s]
   (if (and (<= (+ json-idx 4) json-len)
@@ -247,8 +293,9 @@ This is O(b-a) rather than O(n) like `slice`.")
                      (and (= (String.char-at s (+ json-idx 2)) \u)
                           (= (String.char-at s (+ json-idx 3)) \e)))))
     (do (set! json-idx (+ json-idx 4))
-        (Result.Success (JSON.Bool true)))
-    (Result.Error (fmt "expected 'true' at position %d" json-idx))))
+        (JSON.Bool true))
+    (do (json-set-err! (JSON.ParseErrorKind.InvalidLiteral @"true"))
+        (JSON.Bool false))))
 
 (defn json-parse-false [s]
   (if (and (<= (+ json-idx 5) json-len)
@@ -258,105 +305,91 @@ This is O(b-a) rather than O(n) like `slice`.")
                           (and (= (String.char-at s (+ json-idx 3)) \s)
                                (= (String.char-at s (+ json-idx 4)) \e))))))
     (do (set! json-idx (+ json-idx 5))
-        (Result.Success (JSON.Bool false)))
-    (Result.Error (fmt "expected 'false' at position %d" json-idx))))
+        (JSON.Bool false))
+    (do (json-set-err! (JSON.ParseErrorKind.InvalidLiteral @"false"))
+        (JSON.Bool false))))
 
 ; Forward declaration for mutual recursion
-(register json-parse-value (Fn [&String] (Result JSON String)))
+(register json-parse-value (Fn [&String] JSON))
 
 (defn json-parse-array [s]
-  (let-do [arr (the (Array (Box JSON)) [])
-           failed @""]
+  (let-do [arr (the (Array (Box JSON)) [])]
     (set! json-idx (Int.inc json-idx))
     (json-skip-ws s)
     (if (and (< json-idx json-len) (= (String.char-at s json-idx) \]))
       (do (set! json-idx (Int.inc json-idx))
-          (Result.Success (JSON.Arr arr)))
+          (JSON.Arr arr))
       (do
         (while true
-          (match (json-parse-value s)
-            (Result.Error e) (do (set! failed e) (break))
-            (Result.Success val)
-              (do
-                (set! arr (Array.push-back arr (Box.init val)))
-                (json-skip-ws s)
-                (if (>= json-idx json-len)
-                  (do (set! failed @"unterminated array") (break))
-                  (let [c (String.char-at s json-idx)]
-                    (cond
-                      (= c \])
-                        (do (set! json-idx (Int.inc json-idx)) (break))
-                      (= c \,)
-                        (set! json-idx (Int.inc json-idx))
-                      (do (set! failed @"expected ',' or ']' in array")
-                          (break))))))))
-        (if (String.empty? &failed)
-          (Result.Success (JSON.Arr arr))
-          (Result.Error failed))))))
+          (let-do [val (json-parse-value s)]
+            (set! arr (Array.push-back arr (Box.init val)))
+            (when (json-failed?) (break))
+            (json-skip-ws s)
+            (if (>= json-idx json-len)
+              (do (json-set-err! (JSON.ParseErrorKind.UnterminatedArray)) (break))
+              (let [c (String.char-at s json-idx)]
+                (cond
+                  (= c \])
+                    (do (set! json-idx (Int.inc json-idx)) (break))
+                  (= c \,)
+                    (set! json-idx (Int.inc json-idx))
+                  (do (json-set-err! (JSON.ParseErrorKind.ExpectedCommaOrEnd))
+                      (break)))))))
+        (JSON.Arr arr)))))
 
 (defn json-parse-object [s]
-  (let-do [m (the (Map String (Box JSON)) {})
-           failed @""]
+  (let-do [m (the (Map String (Box JSON)) {})]
     (set! json-idx (Int.inc json-idx))
     (json-skip-ws s)
     (if (and (< json-idx json-len) (= (String.char-at s json-idx) \}))
       (do (set! json-idx (Int.inc json-idx))
-          (Result.Success (JSON.Obj m)))
+          (JSON.Obj m))
       (do
         (while true
-          (do (json-skip-ws s)
-          (if (or (>= json-idx json-len) (/= (String.char-at s json-idx) \"))
-            (do (set! failed @"expected string key in object") (break))
-            (match (json-parse-str-raw s)
-              (Result.Error e) (do (set! failed e) (break))
-              (Result.Success key)
-                (do
-                  (json-skip-ws s)
-                  (if (or (>= json-idx json-len) (/= (String.char-at s json-idx) \:))
-                    (do (set! failed @"expected ':' in object") (break))
-                    (do
-                      (set! json-idx (Int.inc json-idx))
-                      (match (json-parse-value s)
-                        (Result.Error e) (do (set! failed e) (break))
-                        (Result.Success val)
-                          (do
-                            (let [bv (Box.init val)]
-                              (Map.put! &m &key &bv))
-                            (json-skip-ws s)
-                            (if (>= json-idx json-len)
-                              (do (set! failed @"unterminated object") (break))
-                              (let [c (String.char-at s json-idx)]
-                                (cond
-                                  (= c \})
-                                    (do (set! json-idx (Int.inc json-idx)) (break))
-                                  (= c \,)
-                                    (set! json-idx (Int.inc json-idx))
-                                  (do (set! failed @"expected ',' or '}' in object")
-                                      (break))))))))))))))
-        (if (String.empty? &failed)
-          (Result.Success (JSON.Obj m))
-          (Result.Error failed))))))
+          (do
+            (json-skip-ws s)
+            (if (or (>= json-idx json-len) (/= (String.char-at s json-idx) \"))
+              (do (json-set-err! (JSON.ParseErrorKind.ExpectedStringKey)) (break))
+              (let-do [key (json-parse-str-raw s)]
+                (when (json-failed?) (break))
+                (json-skip-ws s)
+                (if (or (>= json-idx json-len) (/= (String.char-at s json-idx) \:))
+                  (do (json-set-err! (JSON.ParseErrorKind.ExpectedColon)) (break))
+                  (do
+                    (set! json-idx (Int.inc json-idx))
+                    (let-do [val (json-parse-value s)
+                             bv (Box.init val)]
+                      (Map.put! &m &key &bv)
+                      (when (json-failed?) (break))
+                      (json-skip-ws s)
+                      (if (>= json-idx json-len)
+                        (do (json-set-err! (JSON.ParseErrorKind.UnterminatedObject)) (break))
+                        (let [c (String.char-at s json-idx)]
+                          (cond
+                            (= c \})
+                              (do (set! json-idx (Int.inc json-idx)) (break))
+                            (= c \,)
+                              (set! json-idx (Int.inc json-idx))
+                            (do (json-set-err! (JSON.ParseErrorKind.ExpectedCommaOrEnd))
+                                (break))))))))))))
+        (JSON.Obj m)))))
 
 (defn json-parse-value [s]
   (do
     (json-skip-ws s)
     (if (>= json-idx json-len)
-      (Result.Error @"unexpected end of input")
+      (do (json-set-err! (JSON.ParseErrorKind.UnexpectedEof)) (JSON.Null))
       (let [c (String.char-at s json-idx)]
         (cond
-          (= c \")
-            (match (json-parse-str-raw s)
-              (Result.Error e) (Result.Error e)
-              (Result.Success str-val)
-                (Result.Success (JSON.Str str-val)))
+          (= c \")                       (JSON.Str (json-parse-str-raw s))
           (= c \t)                       (json-parse-true s)
           (= c \f)                       (json-parse-false s)
           (= c \n)                       (json-parse-null s)
           (= c \[)                       (json-parse-array s)
           (= c \{)                       (json-parse-object s)
           (or (= c \-) (Char.num? c))   (json-parse-number s)
-          (Result.Error (fmt "unexpected character '%s' at position %d"
-                             &(Char.str c) json-idx)))))))
+          (do (json-set-err! (JSON.ParseErrorKind.UnexpectedChar c))
+              (JSON.Null)))))))
 
 ; ===========================================================================
 ; Public API
@@ -365,20 +398,76 @@ This is O(b-a) rather than O(n) like `slice`.")
 (defmodule JSON
   (doc parse "parses a JSON value from a string.
 
-Returns a `(Result JSON String)` -- a `Success` with the parsed value, or an
-`Error` with a message describing what went wrong.")
+Returns a `(Result JSON ParseError)` -- a `Success` with the parsed value,
+or an `Error` carrying the failure kind and the byte position where it
+was detected. Use `JSON.parse-error-str` to format the error for display.")
   (defn parse [s]
     (do
       (set! json-idx 0)
       (set! json-len (String.length s))
-      (match (json-parse-value s)
-        (Result.Error e) (Result.Error e)
-        (Result.Success j)
+      (set! *parse-error* (the (Maybe JSON.ParseError) (Maybe.Nothing)))
+      (let-do [j (json-parse-value s)]
+        (unless (json-failed?)
           (do
             (json-skip-ws s)
-            (if (= json-idx json-len)
-              (Result.Success j)
-              (Result.Error (fmt "unexpected content at position %d" json-idx)))))))
+            (when (/= json-idx json-len)
+              (json-set-err! (JSON.ParseErrorKind.TrailingContent)))))
+        (match-ref &*parse-error*
+          (Maybe.Just e) (do (ignore j) (Result.Error @e))
+          (Maybe.Nothing) (Result.Success j)))))
+
+  ; -------------------------------------------------------------------------
+  ; Error formatting
+  ; -------------------------------------------------------------------------
+
+  (doc parse-error-kind-str "formats a `ParseErrorKind` as a human-readable
+message, without position information.")
+  (defn parse-error-kind-str [k]
+    (match-ref k
+      (JSON.ParseErrorKind.UnexpectedEof)
+        @"unexpected end of input"
+      (JSON.ParseErrorKind.UnexpectedChar c)
+        (fmt "unexpected character '%s'" &(Char.str @c))
+      (JSON.ParseErrorKind.InvalidLiteral lit)
+        (fmt "expected '%s'" lit)
+      (JSON.ParseErrorKind.InvalidNumber text)
+        (fmt "invalid number '%s'" text)
+      (JSON.ParseErrorKind.InvalidEscape c)
+        (fmt "invalid escape character '\\%s'" &(Char.str @c))
+      (JSON.ParseErrorKind.InvalidUnicodeEscape)
+        @"invalid unicode escape"
+      (JSON.ParseErrorKind.LoneHighSurrogate)
+        @"expected low surrogate after high surrogate"
+      (JSON.ParseErrorKind.InvalidLowSurrogate)
+        @"invalid low surrogate"
+      (JSON.ParseErrorKind.UnterminatedString)
+        @"unterminated string"
+      (JSON.ParseErrorKind.UnterminatedArray)
+        @"unterminated array"
+      (JSON.ParseErrorKind.UnterminatedObject)
+        @"unterminated object"
+      (JSON.ParseErrorKind.ExpectedColon)
+        @"expected ':' in object"
+      (JSON.ParseErrorKind.ExpectedCommaOrEnd)
+        @"expected ',' or closing bracket"
+      (JSON.ParseErrorKind.ExpectedStringKey)
+        @"expected string key"
+      (JSON.ParseErrorKind.TrailingContent)
+        @"unexpected trailing content"))
+
+  (doc parse-error-str "formats a `ParseError` as a human-readable message
+including the byte position where the error was detected.")
+  (defn parse-error-str [e]
+    (fmt "%s at position %d"
+      &(JSON.parse-error-kind-str (JSON.ParseError.kind e))
+      @(JSON.ParseError.position e)))
+
+  (doc serialize-error-str "formats a `SerializeError` as a human-readable
+message.")
+  (defn serialize-error-str [e]
+    (match-ref e
+      (JSON.SerializeError.NonFiniteNumber n)
+        (fmt "non-finite number cannot be serialized: %f" @n)))
 
   ; -------------------------------------------------------------------------
   ; Serializer
@@ -423,27 +512,51 @@ Returns a `(Result JSON String)` -- a `Success` with the parsed value, or an
             (Array.push-back! &chars c))))
       (String.from-chars &chars)))
 
-  (doc str "serializes a JSON value to its string representation.
-
-Produces compact output with no extra whitespace.")
-  (defn str [j]
+  (private str-internal)
+  (hidden str-internal)
+  ; Forward declaration is required so the recursive calls inside the
+  ; lambdas passed to Array.copy-map / Map.kv-reduce below resolve to the
+  ; in-progress definition. Without it, the file builds but segfaults
+  ; when serializing arrays or objects.
+  (register str-internal (Fn [(Ref JSON)] String))
+  (defn str-internal [j]
     (match-ref j
       (JSON.Null) @"null"
       (JSON.Bool b) (if @b @"true" @"false")
-      (JSON.Num n) (Double.str @n)
+      (JSON.Num n)
+        (if (or (Double.nan? @n) (Double.inf? @n))
+          (do (when (Maybe.nothing? &*serialize-error*)
+                (set! *serialize-error*
+                  (Maybe.Just (JSON.SerializeError.NonFiniteNumber @n))))
+              @"null")
+          (Double.str @n))
       (JSON.Str s) (fmt "\"%s\"" &(escape-json-str s))
       (JSON.Arr a)
-        (let [elems (Array.copy-map &(fn [b] (JSON.str (Box.peek b))) a)]
+        (let [elems (Array.copy-map &(fn [b] (JSON.str-internal (Box.peek b))) a)]
           (fmt "[%s]" &(String.join "," &elems)))
       (JSON.Obj m)
         (let [pairs (Map.kv-reduce
                       &(fn [acc k v]
                         (Array.push-back acc
-                          (fmt "\"%s\":%s" &(escape-json-str k) &(JSON.str (Box.peek v)))))
+                          (fmt "\"%s\":%s" &(escape-json-str k) &(JSON.str-internal (Box.peek v)))))
                       (the (Array String) [])
                       m)]
           (fmt "{%s}" &(String.join "," &pairs)))))
-  (implements str JSON.str)
+
+  (doc str "serializes a JSON value to its string representation.
+
+Returns a `(Result String SerializeError)`. Errors are returned only when
+a `JSON.Num` contains NaN or infinity, neither of which is representable
+in JSON.
+
+Produces compact output with no extra whitespace.")
+  (defn str [j]
+    (do
+      (set! *serialize-error* (the (Maybe JSON.SerializeError) (Maybe.Nothing)))
+      (let-do [s (JSON.str-internal j)]
+        (match-ref &*serialize-error*
+          (Maybe.Just e) (do (ignore s) (Result.Error @e))
+          (Maybe.Nothing) (Result.Success s)))))
 
   ; -------------------------------------------------------------------------
   ; Type predicates
@@ -579,4 +692,48 @@ automatically boxed.")
           (Map.put m (Pair.a p) (Pair.b p)))
         (the (Map String (Box JSON)) {})
         &entries)))
+)
+
+; ===========================================================================
+; to-json interface
+; ===========================================================================
+
+(doc to-json "converts a Carp value to its JSON representation.")
+(definterface to-json (Fn [a] JSON))
+
+(defmodule Bool
+  (defn to-json [b] (JSON.Bool b))
+  (implements to-json Bool.to-json)
+)
+
+(defmodule Int
+  (defn to-json [n] (JSON.Num (Double.from-int n)))
+  (implements to-json Int.to-json)
+)
+
+(defmodule Long
+  (defn to-json [n] (JSON.Num (Double.from-long n)))
+  (implements to-json Long.to-json)
+)
+
+(defmodule Float
+  (defn to-json [n] (JSON.Num (Double.from-float n)))
+  (implements to-json Float.to-json)
+)
+
+(defmodule Double
+  (defn to-json [n] (JSON.Num n))
+  (implements to-json Double.to-json)
+)
+
+(defmodule String
+  (defn to-json [s] (JSON.Str s))
+  (implements to-json String.to-json)
+)
+
+(defmodule Array
+  (defn to-json [arr]
+    (JSON.Arr
+      (Array.copy-map &(fn [x] (Box.init (to-json @x))) &arr)))
+  (implements to-json Array.to-json)
 )

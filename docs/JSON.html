@@ -18,9 +18,30 @@
                 <div class="index">
                     <ul>
                         <li>
-                            <a href="JSON.html">
-                                JSON
-                            </a>
+                            <details>
+                                <summary>
+                                    <a href="JSON.html">
+                                        JSON
+                                    </a>
+                                </summary>
+                                <ul>
+                                    <li>
+                                        <a href="JSON.ParseError.html">
+                                            ParseError
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a href="JSON.ParseErrorKind.html">
+                                            ParseErrorKind
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a href="JSON.SerializeError.html">
+                                            SerializeError
+                                        </a>
+                                    </li>
+                                </ul>
+                            </details>
                         </li>
                     </ul>
                 </div>
@@ -32,13 +53,13 @@
                 <div class="module-description">
                     <p>is a JSON data type, parser, and serializer for Carp.</p>
 <h2>Installation</h2>
-<pre><code>(load &quot;git@github.com:carpentry-org/json@0.1.0&quot;)
+<pre><code>(load &quot;git@github.com:carpentry-org/json@0.2.0&quot;)
 </code></pre>
 <h2>Usage</h2>
 <pre><code>; Parse JSON
 (match (JSON.parse &quot;{\&quot;name\&quot;: \&quot;carp\&quot;}&quot;)
   (Result.Success j) (println* &amp;j)
-  (Result.Error e) (IO.errorln &amp;e))
+  (Result.Error e) (IO.errorln &amp;(JSON.parse-error-str &amp;e)))
 
 ; Build JSON
 (def j (JSON.obj [(JSON.entry @&quot;name&quot; (JSON.Str @&quot;carp&quot;))
@@ -46,6 +67,9 @@
 
 ; Access values
 (JSON.get &amp;j &quot;name&quot;) ; =&gt; (Maybe.Just (JSON.Str &quot;carp&quot;))
+
+; Convert native values via to-json
+(to-json @&quot;hello&quot;) ; =&gt; (JSON.Str &quot;hello&quot;)
 </code></pre>
 
                 </div>
@@ -146,6 +170,77 @@
                     </span>
                     <p class="doc">
                         <p>creates a <code>Obj</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ParseError">
+                        <h3 id="ParseError">
+                            <a href="JSON.ParseError.html">
+                                ParseError
+                            </a>
+                        </h3>
+                    </a>
+                    <div class="description">
+                        module
+                    </div>
+                    <p class="sig">
+                        Module
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>wraps a <code>ParseErrorKind</code> together with the byte position
+in the input where the error was detected.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ParseErrorKind">
+                        <h3 id="ParseErrorKind">
+                            <a href="JSON.ParseErrorKind.html">
+                                ParseErrorKind
+                            </a>
+                        </h3>
+                    </a>
+                    <div class="description">
+                        module
+                    </div>
+                    <p class="sig">
+                        Module
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>describes the cause of a parse failure.</p>
+<p>The associated <code>ParseError</code> carries this together with the byte position
+where the error was detected.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#SerializeError">
+                        <h3 id="SerializeError">
+                            <a href="JSON.SerializeError.html">
+                                SerializeError
+                            </a>
+                        </h3>
+                    </a>
+                    <div class="description">
+                        module
+                    </div>
+                    <p class="sig">
+                        Module
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>describes the cause of a serialization failure.</p>
+<p><code>NonFiniteNumber</code> is emitted when a <code>JSON.Num</code> contains NaN or infinity,
+neither of which is representable in JSON.</p>
 
                     </p>
                 </div>
@@ -547,15 +642,58 @@ array or the index is out of bounds. Returns a copy of the value.</p>
                         defn
                     </div>
                     <p class="sig">
-                        (Fn [(Ref String a)] (Result JSON String))
+                        (Fn [(Ref String a)] (Result JSON JSON.ParseError))
                     </p>
                     <pre class="args">
                         (parse s)
                     </pre>
                     <p class="doc">
                         <p>parses a JSON value from a string.</p>
-<p>Returns a <code>(Result JSON String)</code> -- a <code>Success</code> with the parsed value, or an
-<code>Error</code> with a message describing what went wrong.</p>
+<p>Returns a <code>(Result JSON ParseError)</code> -- a <code>Success</code> with the parsed value,
+or an <code>Error</code> carrying the failure kind and the byte position where it
+was detected. Use <code>JSON.parse-error-str</code> to format the error for display.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#parse-error-kind-str">
+                        <h3 id="parse-error-kind-str">
+                            parse-error-kind-str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON.ParseErrorKind a)] String)
+                    </p>
+                    <pre class="args">
+                        (parse-error-kind-str k)
+                    </pre>
+                    <p class="doc">
+                        <p>formats a <code>ParseErrorKind</code> as a human-readable
+message, without position information.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#parse-error-str">
+                        <h3 id="parse-error-str">
+                            parse-error-str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON.ParseError a)] String)
+                    </p>
+                    <pre class="args">
+                        (parse-error-str e)
+                    </pre>
+                    <p class="doc">
+                        <p>formats a <code>ParseError</code> as a human-readable message
+including the byte position where the error was detected.</p>
 
                     </p>
                 </div>
@@ -580,6 +718,27 @@ array or the index is out of bounds. Returns a copy of the value.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#serialize-error-str">
+                        <h3 id="serialize-error-str">
+                            serialize-error-str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON.SerializeError a)] String)
+                    </p>
+                    <pre class="args">
+                        (serialize-error-str e)
+                    </pre>
+                    <p class="doc">
+                        <p>formats a <code>SerializeError</code> as a human-readable
+message.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#str">
                         <h3 id="str">
                             str
@@ -589,13 +748,16 @@ array or the index is out of bounds. Returns a copy of the value.</p>
                         defn
                     </div>
                     <p class="sig">
-                        (Fn [(Ref JSON a)] String)
+                        (Fn [(Ref JSON a)] (Result String JSON.SerializeError))
                     </p>
                     <pre class="args">
                         (str j)
                     </pre>
                     <p class="doc">
                         <p>serializes a JSON value to its string representation.</p>
+<p>Returns a <code>(Result String SerializeError)</code>. Errors are returned only when
+a <code>JSON.Num</code> contains NaN or infinity, neither of which is representable
+in JSON.</p>
 <p>Produces compact output with no extra whitespace.</p>
 
                     </p>

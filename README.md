@@ -5,7 +5,7 @@ A JSON parser and serializer for Carp.
 ## Installation
 
 ```clojure
-(load "git@github.com:carpentry-org/json@0.1.0")
+(load "git@github.com:carpentry-org/json@0.2.0")
 ```
 
 ## Usage
@@ -17,11 +17,13 @@ Parse a JSON string into a `JSON` value using `JSON.parse`:
 ```clojure
 (match (JSON.parse "{\"name\": \"carp\", \"version\": 1}")
   (Result.Success j) (println* &j)
-  (Result.Error e) (IO.errorln &e))
+  (Result.Error e) (IO.errorln &(JSON.parse-error-str &e)))
 ```
 
-`JSON.parse` returns a `(Result JSON String)`. On failure, the error contains a
-message describing what went wrong.
+`JSON.parse` returns a `(Result JSON ParseError)`. The error carries both
+a `ParseErrorKind` (one of 15 variants describing what went wrong) and a
+byte position. Use `JSON.parse-error-str` to format it for display, or
+`match-ref` on the kind to react programmatically.
 
 ### Building JSON values
 
@@ -33,13 +35,29 @@ You can construct JSON values directly:
                   (JSON.entry @"active" (JSON.Bool true))]))
 ```
 
+Or convert native Carp values via the `to-json` interface, which is
+implemented for `Bool`, `Int`, `Long`, `Float`, `Double`, `String`, and
+`Array`:
+
+```clojure
+(to-json @"hello")    ; => (JSON.Str "hello")
+(to-json [1 2 3])     ; => (JSON.Arr [...])
+(to-json [@"a" @"b"]) ; => (JSON.Arr [(JSON.Str "a") (JSON.Str "b")])
+```
+
 ### Serialization
 
 Convert any `JSON` value back to a string with `str`:
 
 ```clojure
-(JSON.str &j) ; => "{\"name\":\"carp\",\"version\":1.000000,\"active\":true}"
+(match (JSON.str &j)
+  (Result.Success s) (println &s)
+  (Result.Error e) (IO.errorln &(JSON.serialize-error-str &e)))
 ```
+
+`JSON.str` returns a `(Result String SerializeError)`. It only fails when
+a `JSON.Num` contains NaN or infinity, neither of which is representable
+in JSON.
 
 ### Accessing values
 
