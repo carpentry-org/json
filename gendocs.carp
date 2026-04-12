@@ -15,7 +15,7 @@ native Carp values via the [`to-json`](./JSON.html#to-json) interface.
 
 ### Parsing
 ```
-(load \"git@github.com:carpentry-org/json@0.2.0\")
+(load \"git@github.com:carpentry-org/json@0.2.1\")
 
 (defn main []
   (match (JSON.parse \"{\\\"name\\\": \\\"carp\\\"}\")

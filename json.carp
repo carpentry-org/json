@@ -3,7 +3,7 @@
 ## Installation
 
 ```
-(load \"git@github.com:carpentry-org/json@0.2.0\")
+(load \"git@github.com:carpentry-org/json@0.2.1\")
 ```
 
 ## Usage
@@ -24,18 +24,6 @@
 ; Convert native values via to-json
 (to-json @\"hello\") ; => (JSON.Str \"hello\")
 ```")
-
-(defmodule String
-  (doc byte-slice "Return part of a string from byte index `a` to byte index `b`.
-Unlike `slice`, indices are byte positions, not character positions.
-This is O(b-a) rather than O(n) like `slice`.")
-  (defn byte-slice [s a b]
-    (let-do [len (- b a)
-             bytes (the (Array Byte) (Array.allocate len))]
-      (for [i 0 len]
-        (Array.aset-uninitialized! &bytes i (Char.to-byte (char-at s (+ a i)))))
-      (from-bytes &bytes)))
-)
 
 (defmodule Double
   (register nan? (Fn [Double] Bool) "isnan")
