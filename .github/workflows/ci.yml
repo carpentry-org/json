@@ -21,3 +21,6 @@ jobs:
 
       - name: Run tests
         run: carp -x test/json.carp
+
+      - name: Generate docs
+        run: carp -x gendocs.carp
