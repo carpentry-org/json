@@ -17,14 +17,18 @@
 
 (defn make-medium-obj []
   (let-do [parts (the (Array String) [])]
-    (for [i 0 50]
-      (Array.push-back! &parts (fmt "\"key_%d\":%d" i i)))
+    (for [i 0 50] (Array.push-back! &parts (fmt "\"key_%d\":%d" i i)))
     (fmt "{%s}" &(String.join "," &parts))))
 
 (defn make-large-arr []
   (let-do [parts (the (Array String) [])]
     (for [i 0 1000]
-      (Array.push-back! &parts (fmt "{\"id\":%d,\"name\":\"item_%d\",\"active\":true,\"score\":3.14}" i i)))
+      (Array.push-back!
+        &parts
+        (fmt
+          "{\"id\":%d,\"name\":\"item_%d\",\"active\":true,\"score\":3.14}"
+          i
+          i)))
     (fmt "[%s]" &(String.join "," &parts))))
 
 (defn must-parse [s]
@@ -41,8 +45,10 @@
 (def small-obj @"{\"name\":\"carp\",\"version\":1}")
 (def medium-arr @"")
 (def medium-obj @"")
-(def nested-obj @"{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":{\"h\":true}}}}}}}}")
-(def escaped-strs @"[\"hello\\nworld\",\"tab\\there\",\"quote\\\"inside\",\"back\\\\slash\",\"unicode\\u0041\\u00e9\"]")
+(def nested-obj
+  @"{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":{\"h\":true}}}}}}}}")
+(def escaped-strs
+  @"[\"hello\\nworld\",\"tab\\there\",\"quote\\\"inside\",\"back\\\\slash\",\"unicode\\u0041\\u00e9\"]")
 (def large-arr @"")
 
 (def parsed-small-obj (JSON.Null))
@@ -87,11 +93,9 @@
 ; ---------------------------------------------------------------------------
 
 (defn get-key [] (ignore (JSON.get &parsed-small-obj "name")))
-(defn get-in-deep []
-  (ignore (JSON.get-in &parsed-small-obj &[@"name"])))
+(defn get-in-deep [] (ignore (JSON.get-in &parsed-small-obj &[@"name"])))
 
-(defn nth-mid []
-  (ignore (JSON.nth &parsed-medium-arr 50)))
+(defn nth-mid [] (ignore (JSON.nth &parsed-medium-arr 50)))
 
 ; ---------------------------------------------------------------------------
 ; Roundtrip benchmark
@@ -100,17 +104,14 @@
 (defn roundtrip-medium []
   (match (JSON.parse &medium-arr)
     (Result.Success j)
-      (match (JSON.str &j)
-        (Result.Success s) (ignore (JSON.parse &s))
-        _ ())
+      (match (JSON.str &j) (Result.Success s) (ignore (JSON.parse &s)) _ ())
     _ ()))
 
 ; ---------------------------------------------------------------------------
 ; Main
 ; ---------------------------------------------------------------------------
 
-(defn main []
-  (do
+(defn main [] (do
     (setup)
     (println "=== JSON Parse ===")
     (println "")
