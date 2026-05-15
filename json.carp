@@ -72,7 +72,7 @@ where the error was detected.")
   (doc ParseError "wraps a `ParseErrorKind` together with the byte position
 in the input where the error was detected.")
   (deftype ParseError [position Int
-      kind JSON.ParseErrorKind])
+                       kind JSON.ParseErrorKind])
 
   (doc SerializeError "describes the cause of a serialization failure.
 
@@ -131,19 +131,16 @@ neither of which is representable in JSON.")
   (cond
     (< cp 128) [(Byte.from-int cp)]
     (< cp 2048)
-      [
-        (Byte.from-int (+ 192 (Int.bit-shift-right cp 6)))
-        (Byte.from-int (+ 128 (Int.bit-and cp 63)))]
+      [(Byte.from-int (+ 192 (Int.bit-shift-right cp 6)))
+       (Byte.from-int (+ 128 (Int.bit-and cp 63)))]
     (< cp 65536)
-      [
-        (Byte.from-int (+ 224 (Int.bit-shift-right cp 12)))
-        (Byte.from-int (+ 128 (Int.bit-and (Int.bit-shift-right cp 6) 63)))
-        (Byte.from-int (+ 128 (Int.bit-and cp 63)))]
-    [
-      (Byte.from-int (+ 240 (Int.bit-shift-right cp 18)))
-      (Byte.from-int (+ 128 (Int.bit-and (Int.bit-shift-right cp 12) 63)))
-      (Byte.from-int (+ 128 (Int.bit-and (Int.bit-shift-right cp 6) 63)))
-      (Byte.from-int (+ 128 (Int.bit-and cp 63)))]))
+      [(Byte.from-int (+ 224 (Int.bit-shift-right cp 12)))
+       (Byte.from-int (+ 128 (Int.bit-and (Int.bit-shift-right cp 6) 63)))
+       (Byte.from-int (+ 128 (Int.bit-and cp 63)))]
+    [(Byte.from-int (+ 240 (Int.bit-shift-right cp 18)))
+     (Byte.from-int (+ 128 (Int.bit-and (Int.bit-shift-right cp 12) 63)))
+     (Byte.from-int (+ 128 (Int.bit-and (Int.bit-shift-right cp 6) 63)))
+     (Byte.from-int (+ 128 (Int.bit-and cp 63)))]))
 
 (defn json-push-codepoint! [bytes cp]
   (let [uc (json-codepoint-to-bytes cp)]
@@ -193,9 +190,11 @@ neither of which is representable in JSON.")
                                 (break)
                                 (if (and (>= cp 55296) (<= cp 56319))
                                   (if (and (< (Int.inc json-idx) json-len)
-                                      (and (= (String.char-at s json-idx) \\)
-                                        (= (String.char-at s (Int.inc json-idx))
-                                          \u)))
+                                           (and (= (String.char-at s json-idx)
+                                                   \\)
+                                                (= (String.char-at s
+                                                                   (Int.inc json-idx))
+                                                   \u)))
                                     (do
                                       (set! json-idx (+ json-idx 2))
                                       (let [low (json-read-hex4 s)]
@@ -203,13 +202,14 @@ neither of which is representable in JSON.")
                                           (break)
                                           (if (and (>= low 56320) (<= low 57343))
                                             (let [full-cp (+ (+ (* (- cp 55296)
-                                                      1024)
-                                                    (- low 56320))
-                                                  65536)]
+                                                                   1024)
+                                                                (- low 56320))
+                                                             65536)]
                                               (json-push-codepoint! &bytes
-                                                full-cp))
+                                                                    full-cp))
                                             (do
-                                              (json-set-err! (JSON.ParseErrorKind.InvalidLowSurrogate))
+                                              (json-set-err!
+                                                (JSON.ParseErrorKind.InvalidLowSurrogate))
                                               (break))))))
                                     (do
                                       (json-set-err! (JSON.ParseErrorKind.LoneHighSurrogate))
@@ -227,8 +227,8 @@ neither of which is representable in JSON.")
   (if (>= json-idx json-len)
     (json-set-err! (JSON.ParseErrorKind.UnexpectedEof))
     (unless (Char.num? (String.char-at s json-idx))
-      (json-set-err! (JSON.ParseErrorKind.UnexpectedChar (String.char-at s
-            json-idx))))))
+      (json-set-err!
+        (JSON.ParseErrorKind.UnexpectedChar (String.char-at s json-idx))))))
 
 (defn json-skip-digits [s]
   (while (and (< json-idx json-len) (Char.num? (String.char-at s json-idx)))
@@ -250,12 +250,12 @@ neither of which is representable in JSON.")
       (unless (json-failed?) (json-skip-digits s)))
     (when-do (and (not (json-failed?))
                   (and (< json-idx json-len)
-                    (or (= (String.char-at s json-idx) \e)
-                      (= (String.char-at s json-idx) \E))))
+                       (or (= (String.char-at s json-idx) \e)
+                           (= (String.char-at s json-idx) \E))))
       (set! json-idx (Int.inc json-idx))
       (when (and (< json-idx json-len)
                  (or (= (String.char-at s json-idx) \+)
-                   (= (String.char-at s json-idx) \-)))
+                     (= (String.char-at s json-idx) \-)))
         (set! json-idx (Int.inc json-idx)))
       (json-expect-digit! s)
       (unless (json-failed?) (json-skip-digits s)))
@@ -273,8 +273,8 @@ neither of which is representable in JSON.")
   (if (and (<= (+ json-idx 4) json-len)
            (and (= (String.char-at s json-idx) \n)
                 (and (= (String.char-at s (+ json-idx 1)) \u)
-                  (and (= (String.char-at s (+ json-idx 2)) \l)
-                    (= (String.char-at s (+ json-idx 3)) \l)))))
+                     (and (= (String.char-at s (+ json-idx 2)) \l)
+                          (= (String.char-at s (+ json-idx 3)) \l)))))
     (do (set! json-idx (+ json-idx 4)) (JSON.Null))
     (do (json-set-err! (JSON.ParseErrorKind.InvalidLiteral @"null")) (JSON.Null))))
 
@@ -282,8 +282,8 @@ neither of which is representable in JSON.")
   (if (and (<= (+ json-idx 4) json-len)
            (and (= (String.char-at s json-idx) \t)
                 (and (= (String.char-at s (+ json-idx 1)) \r)
-                  (and (= (String.char-at s (+ json-idx 2)) \u)
-                    (= (String.char-at s (+ json-idx 3)) \e)))))
+                     (and (= (String.char-at s (+ json-idx 2)) \u)
+                          (= (String.char-at s (+ json-idx 3)) \e)))))
     (do (set! json-idx (+ json-idx 4)) (JSON.Bool true))
     (do
       (json-set-err! (JSON.ParseErrorKind.InvalidLiteral @"true"))
@@ -293,9 +293,9 @@ neither of which is representable in JSON.")
   (if (and (<= (+ json-idx 5) json-len)
            (and (= (String.char-at s json-idx) \f)
                 (and (= (String.char-at s (+ json-idx 1)) \a)
-                  (and (= (String.char-at s (+ json-idx 2)) \l)
-                    (and (= (String.char-at s (+ json-idx 3)) \s)
-                      (= (String.char-at s (+ json-idx 4)) \e))))))
+                     (and (= (String.char-at s (+ json-idx 2)) \l)
+                          (and (= (String.char-at s (+ json-idx 3)) \s)
+                               (= (String.char-at s (+ json-idx 4)) \e))))))
     (do (set! json-idx (+ json-idx 5)) (JSON.Bool false))
     (do
       (json-set-err! (JSON.ParseErrorKind.InvalidLiteral @"false"))
@@ -348,7 +348,7 @@ neither of which is representable in JSON.")
                 (do
                   (set! json-idx (Int.inc json-idx))
                   (let-do [val (json-parse-value s)
-                      bv (Box.init val)]
+                           bv (Box.init val)]
                     (Map.put! &m &key &bv)
                     (when (json-failed?) (break))
                     (json-skip-ws s)
@@ -486,10 +486,13 @@ message.")
               (Array.push-back! &out 48b)
               (Array.push-back! &out 48b)
               (Array.push-back! &out
-                (Char.to-byte @(Array.unsafe-nth &hex-table
-                    (Int.bit-shift-right cp 4))))
+                                (Char.to-byte
+                                  @(Array.unsafe-nth &hex-table
+                                                     (Int.bit-shift-right cp 4))))
               (Array.push-back! &out
-                (Char.to-byte @(Array.unsafe-nth &hex-table (Int.bit-and cp 15)))))
+                                (Char.to-byte
+                                  @(Array.unsafe-nth &hex-table
+                                                     (Int.bit-and cp 15)))))
             ; Non-control: encode codepoint back to UTF-8 bytes
             (let [rs (Rune.str &rune)
                   rb (String.to-bytes &rs)]
@@ -521,11 +524,12 @@ message.")
         (let [elems (Array.copy-map &(fn [b] (JSON.str-internal (Box.peek b))) a)]
           (fmt "[%s]" &(String.join "," &elems)))
       (JSON.Obj m)
-        (let [pairs (Map.kv-reduce &(fn [acc k v]
+        (let [pairs (Map.kv-reduce
+                &(fn [acc k v]
                   (Array.push-back acc
-                    (fmt "\"%s\":%s"
-                      &(escape-json-str k)
-                      &(JSON.str-internal (Box.peek v)))))
+                                   (fmt "\"%s\":%s"
+                                        &(escape-json-str k)
+                                        &(JSON.str-internal (Box.peek v)))))
                 (the (Array String) [])
                 m)]
           (fmt "{%s}" &(String.join "," &pairs)))))
@@ -617,12 +621,11 @@ array or the index is out of bounds. Returns a copy of the value.")
 (JSON.get-in &j &[@\"data\" @\"users\"])
 ```")
   (defn get-in [j keys]
-    (Array.reduce &(fn [mj k]
-                    (match mj
-                      (Maybe.Nothing) (Maybe.Nothing)
-                      (Maybe.Just j) (JSON.get &j k)))
-                  (Maybe.Just @j)
-                  keys))
+    (Array.reduce
+      &(fn [mj k]
+        (match mj (Maybe.Nothing) (Maybe.Nothing) (Maybe.Just j) (JSON.get &j k)))
+      (Maybe.Just @j)
+      keys))
 
   ; -------------------------------------------------------------------------
   ; Constructors
@@ -639,9 +642,11 @@ automatically boxed.")
            (JSON.entry @\"b\" (JSON.Bool true))])
 ```")
   (defn obj [entries]
-    (JSON.Obj (Array.reduce &(fn [m p] (Map.put m (Pair.a p) (Pair.b p)))
-                (the (Map String (Box JSON)) {})
-                &entries))))
+    (JSON.Obj
+      (Array.reduce
+        &(fn [m p] (Map.put m (Pair.a p) (Pair.b p)))
+        (the (Map String (Box JSON)) {})
+        &entries))))
 
 ; ===========================================================================
 ; to-json interface

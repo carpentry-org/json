@@ -7,9 +7,10 @@
   (let-do [parts (the (Array String) [])]
     (for [i 0 n]
       (Array.push-back! &parts
-        (fmt "{\"id\":%d,\"name\":\"item_%d\",\"active\":true,\"score\":3.14}"
-             i
-             i)))
+                        (fmt
+                          "{\"id\":%d,\"name\":\"item_%d\",\"active\":true,\"score\":3.14}"
+                          i
+                          i)))
     (fmt "[%s]" &(String.join "," &parts))))
 
 (defn bench-parse [input runs]

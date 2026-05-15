@@ -351,10 +351,11 @@ break")) "str string with newline")
 
   (assert-equal test
     "[1,2,3]"
-    &(ser &(JSON.Arr [
-              (Box.init (JSON.Num 1.0))
-              (Box.init (JSON.Num 2.0))
-              (Box.init (JSON.Num 3.0))]))
+    &(ser
+      &(JSON.Arr
+        [(Box.init (JSON.Num 1.0))
+         (Box.init (JSON.Num 2.0))
+         (Box.init (JSON.Num 3.0))]))
     "str number array")
 
   (assert-equal test
@@ -468,9 +469,9 @@ break")) "str string with newline")
 
   ; get
   (assert-true test
-    (let [j (JSON.obj [
-              (JSON.entry @"a" (JSON.Num 1.0))
-              (JSON.entry @"b" (JSON.Str @"two"))])]
+    (let [j (JSON.obj
+            [(JSON.entry @"a" (JSON.Num 1.0))
+             (JSON.entry @"b" (JSON.Str @"two"))])]
       (match (JSON.get &j "a") (Maybe.Just v) (JSON.num? &v) _ false))
     "get finds existing key")
 
@@ -485,10 +486,10 @@ break")) "str string with newline")
 
   ; nth
   (assert-true test
-    (let [j (JSON.Arr [
-              (Box.init (JSON.Num 10.0))
-              (Box.init (JSON.Num 20.0))
-              (Box.init (JSON.Num 30.0))])]
+    (let [j (JSON.Arr
+            [(Box.init (JSON.Num 10.0))
+             (Box.init (JSON.Num 20.0))
+             (Box.init (JSON.Num 30.0))])]
       (match (JSON.nth &j 1) (Maybe.Just v) (JSON.num? &v) _ false))
     "nth finds element at index")
 
@@ -561,7 +562,8 @@ break")) "str string with newline")
   ; =========================================================================
 
   (assert-true test
-    (parse-ok? "{\"users\":[{\"id\":1,\"name\":\"Alice\",\"active\":true},{\"id\":2,\"name\":\"Bob\",\"active\":false}],\"total\":2}")
+    (parse-ok?
+      "{\"users\":[{\"id\":1,\"name\":\"Alice\",\"active\":true},{\"id\":2,\"name\":\"Bob\",\"active\":false}],\"total\":2}")
     "parse realistic API response")
 
   (assert-true test
@@ -699,10 +701,10 @@ break")) "str string with newline")
     "infinity gives NonFiniteNumber serialize error")
 
   (assert-true test
-    (let [j (JSON.Arr [
-              (Box.init (JSON.Num 1.0))
-              (Box.init (JSON.Num (Double./ 0.0 0.0)))
-              (Box.init (JSON.Num 3.0))])]
+    (let [j (JSON.Arr
+            [(Box.init (JSON.Num 1.0))
+             (Box.init (JSON.Num (Double./ 0.0 0.0)))
+             (Box.init (JSON.Num 3.0))])]
       (Result.error? &(JSON.str &j)))
     "NaN nested inside an array surfaces as a serialize error")
 
