@@ -15,7 +15,7 @@
     (fmt "[%s]" &(String.join "," &parts))))
 
 (defn bench-parse [input runs]
-  (let-do [best 1e+09]
+  (let-do [best 1000000000.0]
     (for [r 0 runs]
       (let-do [t0 (get-time-elapsed)
                result (JSON.parse input)
@@ -48,7 +48,7 @@
       (for [si 0 (Array.length &sizes)]
         (let [n @(Array.unsafe-nth &sizes si)
               input (make-large-arr n)
-              ms (/ (bench-parse &input 5) 1e+06)]
+              ms (/ (bench-parse &input 5) 1000000.0)]
           (println* n " objects: " ms "ms  (" (String.length &input) " bytes)"))))
 
     (IO.println "")
@@ -57,7 +57,7 @@
       (for [si 0 (Array.length &sizes)]
         (let [n @(Array.unsafe-nth &sizes si)
               input (make-num-arr n)
-              ms (/ (bench-parse &input 5) 1e+06)]
+              ms (/ (bench-parse &input 5) 1000000.0)]
           (println* n " numbers: " ms "ms  (" (String.length &input) " bytes)"))))
 
     (IO.println "")
@@ -66,7 +66,7 @@
       (for [si 0 (Array.length &sizes)]
         (let [n @(Array.unsafe-nth &sizes si)
               input (make-str-arr n)
-              ms (/ (bench-parse &input 5) 1e+06)]
+              ms (/ (bench-parse &input 5) 1000000.0)]
           (println* n " strings: " ms "ms  (" (String.length &input) " bytes)"))))
 
     (IO.println "")
@@ -75,5 +75,5 @@
       (for [si 0 (Array.length &sizes)]
         (let [n @(Array.unsafe-nth &sizes si)
               input (make-flat-obj n)
-              ms (/ (bench-parse &input 5) 1e+06)]
+              ms (/ (bench-parse &input 5) 1000000.0)]
           (println* n " keys: " ms "ms  (" (String.length &input) " bytes)"))))))
