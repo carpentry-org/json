@@ -23,12 +23,10 @@
 (defn make-large-arr []
   (let-do [parts (the (Array String) [])]
     (for [i 0 1000]
-      (Array.push-back!
-        &parts
-        (fmt
-          "{\"id\":%d,\"name\":\"item_%d\",\"active\":true,\"score\":3.14}"
-          i
-          i)))
+      (Array.push-back! &parts
+        (fmt "{\"id\":%d,\"name\":\"item_%d\",\"active\":true,\"score\":3.14}"
+             i
+             i)))
     (fmt "[%s]" &(String.join "," &parts))))
 
 (defn must-parse [s]
