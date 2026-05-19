@@ -61,6 +61,7 @@ where the error was detected.")
     (InvalidUnicodeEscape [])
     (LoneHighSurrogate [])
     (InvalidLowSurrogate [])
+    (LoneLowSurrogate [])
     (UnterminatedString [])
     (UnterminatedArray [])
     (UnterminatedObject [])
@@ -214,7 +215,11 @@ neither of which is representable in JSON.")
                                     (do
                                       (json-set-err! (JSON.ParseErrorKind.LoneHighSurrogate))
                                       (break)))
-                                  (json-push-codepoint! &bytes cp)))))
+                                  (if (and (>= cp 56320) (<= cp 57343))
+                                    (do
+                                      (json-set-err! (JSON.ParseErrorKind.LoneLowSurrogate))
+                                      (break))
+                                    (json-push-codepoint! &bytes cp))))))
                         (do
                           (json-set-err! (JSON.ParseErrorKind.InvalidEscape e))
                           (break))))))
@@ -425,6 +430,8 @@ message, without position information.")
       (JSON.ParseErrorKind.LoneHighSurrogate)
         @"expected low surrogate after high surrogate"
       (JSON.ParseErrorKind.InvalidLowSurrogate) @"invalid low surrogate"
+      (JSON.ParseErrorKind.LoneLowSurrogate)
+        @"unexpected low surrogate without preceding high surrogate"
       (JSON.ParseErrorKind.UnterminatedString) @"unterminated string"
       (JSON.ParseErrorKind.UnterminatedArray) @"unterminated array"
       (JSON.ParseErrorKind.UnterminatedObject) @"unterminated object"

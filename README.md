@@ -21,7 +21,7 @@ Parse a JSON string into a `JSON` value using `JSON.parse`:
 ```
 
 `JSON.parse` returns a `(Result JSON ParseError)`. The error carries both
-a `ParseErrorKind` (one of 15 variants describing what went wrong) and a
+a `ParseErrorKind` (one of 16 variants describing what went wrong) and a
 byte position. Use `JSON.parse-error-str` to format it for display, or
 `match-ref` on the kind to react programmatically.
 
