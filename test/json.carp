@@ -6,6 +6,11 @@
 ; Helpers
 ; ---------------------------------------------------------------------------
 
+(defn pretty [j indent]
+  (match (JSON.pretty-str j indent)
+    (Result.Success s) s
+    (Result.Error e) (fmt "SERIALIZE ERROR: %s" &(JSON.serialize-error-str &e))))
+
 (defn ser [j]
   (match (JSON.str j)
     (Result.Success s) s
@@ -745,4 +750,83 @@ break")) "str string with newline")
   (assert-equal test
     "[[1,2],[3,4]]"
     &(ser &(to-json [[1 2] [3 4]]))
-    "to-json on nested Array"))
+    "to-json on nested Array")
+
+  ; =========================================================================
+  ; Pretty serializer (pretty-str)
+  ; =========================================================================
+
+  (assert-equal test "null" &(pretty &(JSON.Null) 2) "pretty-str null")
+
+  (assert-equal test "true" &(pretty &(JSON.Bool true) 2) "pretty-str true")
+
+  (assert-equal test "false" &(pretty &(JSON.Bool false) 2) "pretty-str false")
+
+  (assert-equal test "42" &(pretty &(JSON.Num 42.0) 2) "pretty-str number")
+
+  (assert-equal test
+    "\"hello\""
+    &(pretty &(JSON.Str @"hello") 2)
+    "pretty-str string")
+
+  (assert-equal test
+    "[]"
+    &(pretty &(JSON.Arr (the (Array (Box JSON)) [])) 2)
+    "pretty-str empty array")
+
+  (assert-equal test
+    "{}"
+    &(pretty &(JSON.Obj (the (Map String (Box JSON)) {})) 2)
+    "pretty-str empty object")
+
+  (assert-equal test "[
+  1,
+  2,
+  3
+]" &(pretty
+      &(JSON.Arr
+        [(Box.init (JSON.Num 1.0))
+         (Box.init (JSON.Num 2.0))
+         (Box.init (JSON.Num 3.0))])
+      2) "pretty-str number array with indent 2")
+
+  (assert-equal test "[
+    1,
+    2
+]" &(pretty &(JSON.Arr [(Box.init (JSON.Num 1.0)) (Box.init (JSON.Num 2.0))]) 4) "pretty-str array with indent 4")
+
+  (assert-equal test "{
+  \"a\": 1
+}" &(pretty &(JSON.obj [(JSON.entry @"a" (JSON.Num 1.0))]) 2) "pretty-str single-key object")
+
+  (assert-equal test "[
+  [
+    1,
+    2
+  ],
+  [
+    3
+  ]
+]" &(pretty
+      &(JSON.Arr
+        [(Box.init
+           (JSON.Arr [(Box.init (JSON.Num 1.0)) (Box.init (JSON.Num 2.0))]))
+         (Box.init (JSON.Arr [(Box.init (JSON.Num 3.0))]))])
+      2) "pretty-str nested arrays")
+
+  (assert-true test
+    (let [nan (Double./ 0.0 0.0)]
+      (Result.error? &(JSON.pretty-str &(JSON.Num nan) 2)))
+    "pretty-str NaN gives error")
+
+  (assert-true test
+    (let [j (JSON.obj
+            [(JSON.entry @"name" (JSON.Str @"carp"))
+             (JSON.entry @"version" (JSON.Num 1.0))])]
+      (match (JSON.pretty-str &j 2)
+        (Result.Success pretty-s)
+          (match (JSON.parse &pretty-s)
+            (Result.Success j2) (= &(ser &j) &(ser &j2))
+            _ false)
+        _ false))
+    "pretty-str output parses back to equivalent structure"))
