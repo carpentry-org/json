@@ -653,6 +653,18 @@ break")) "str string with newline")
     "lone high surrogate gives LoneHighSurrogate")
 
   (assert-true test
+    (match (err-kind "\"\\uDC00\"")
+      (Maybe.Just (JSON.ParseErrorKind.LoneLowSurrogate)) true
+      _ false)
+    "lone low surrogate (DC00) gives LoneLowSurrogate")
+
+  (assert-true test
+    (match (err-kind "\"\\uDFFF\"")
+      (Maybe.Just (JSON.ParseErrorKind.LoneLowSurrogate)) true
+      _ false)
+    "lone low surrogate (DFFF) gives LoneLowSurrogate")
+
+  (assert-true test
     (match (err-kind "\"\\uZZZZ\"")
       (Maybe.Just (JSON.ParseErrorKind.InvalidUnicodeEscape)) true
       _ false)
