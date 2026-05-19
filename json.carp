@@ -217,8 +217,7 @@ neither of which is representable in JSON.")
                                       (break)))
                                   (if (and (>= cp 56320) (<= cp 57343))
                                     (do
-                                      (json-set-err!
-                                        (JSON.ParseErrorKind.LoneLowSurrogate))
+                                      (json-set-err! (JSON.ParseErrorKind.LoneLowSurrogate))
                                       (break))
                                     (json-push-codepoint! &bytes cp))))))
                         (do
