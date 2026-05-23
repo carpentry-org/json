@@ -752,6 +752,184 @@ break")) "str string with newline")
     &(ser &(to-json [[1 2] [3 4]]))
     "to-json on nested Array")
 
+  (assert-true test
+    (let [m (Map.from-array [(Pair.init @"x" 1) (Pair.init @"y" 2)])
+          j (to-json m)]
+      (and (JSON.obj? &j)
+           (match (JSON.get &j "x") (Maybe.Just v) (= &(ser &v) "1") _ false)))
+    "to-json on Map")
+
+  (assert-equal test
+    "null"
+    &(ser &(to-json (the (Maybe Int) (Maybe.Nothing))))
+    "to-json on Maybe Nothing")
+
+  (assert-equal test
+    "42"
+    &(ser &(to-json (Maybe.Just 42)))
+    "to-json on Maybe Just")
+
+  ; =========================================================================
+  ; from-json interface
+  ; =========================================================================
+
+  ; Bool
+
+  (assert-true test
+    (match (Bool.from-json &(JSON.Bool true)) (Result.Success b) b _ false)
+    "from-json on Bool true")
+
+  (assert-true test
+    (match (Bool.from-json &(JSON.Bool false))
+      (Result.Success b) (not b)
+      _ false)
+    "from-json on Bool false")
+
+  (assert-true test
+    (Result.error? &(Bool.from-json &(JSON.Null)))
+    "from-json on Bool type mismatch")
+
+  ; Int
+
+  (assert-true test
+    (match (Int.from-json &(JSON.Num 42.0)) (Result.Success n) (= n 42) _ false)
+    "from-json on Int")
+
+  (assert-true test
+    (match (Int.from-json &(JSON.Num 3.7)) (Result.Success n) (= n 3) _ false)
+    "from-json on Int truncates")
+
+  (assert-true test
+    (Result.error? &(Int.from-json &(JSON.Str @"42")))
+    "from-json on Int type mismatch")
+
+  ; Long
+
+  (assert-true test
+    (match (Long.from-json &(JSON.Num 99.0))
+      (Result.Success n) (= n 99l)
+      _ false)
+    "from-json on Long")
+
+  ; Float
+
+  (assert-true test
+    (match (Float.from-json &(JSON.Num 1.5))
+      (Result.Success n) (Float.= n 1.5f)
+      _ false)
+    "from-json on Float")
+
+  ; Double
+
+  (assert-true test
+    (match (Double.from-json &(JSON.Num 3.14))
+      (Result.Success n) (Double.= n 3.14)
+      _ false)
+    "from-json on Double")
+
+  (assert-true test
+    (Result.error? &(Double.from-json &(JSON.Bool true)))
+    "from-json on Double type mismatch")
+
+  ; String
+
+  (assert-true test
+    (match (String.from-json &(JSON.Str @"hello"))
+      (Result.Success s) (= &s "hello")
+      _ false)
+    "from-json on String")
+
+  (assert-true test
+    (Result.error? &(String.from-json &(JSON.Num 1.0)))
+    "from-json on String type mismatch")
+
+  ; Array
+
+  (assert-true test
+    (match (the (Result (Array Int) String)
+                (Array.from-json
+                  &(JSON.Arr
+                    [(Box.init (JSON.Num 1.0))
+                     (Box.init (JSON.Num 2.0))
+                     (Box.init (JSON.Num 3.0))])))
+      (Result.Success arr)
+        (and (= (Array.length &arr) 3) (= @(Array.unsafe-nth &arr 0) 1))
+      _ false)
+    "from-json on Array of Int")
+
+  (assert-true test
+    (Result.error?
+      &(the (Result (Array Int) String)
+            (Array.from-json
+              &(JSON.Arr
+                [(Box.init (JSON.Num 1.0)) (Box.init (JSON.Str @"oops"))]))))
+    "from-json on Array with type mismatch in element")
+
+  (assert-true test
+    (Result.error?
+      &(the (Result (Array Int) String) (Array.from-json &(JSON.Null))))
+    "from-json on Array type mismatch")
+
+  ; Map
+
+  (assert-true test
+    (match (the (Result (Map String Int) String)
+                (Map.from-json
+                  &(JSON.obj
+                    [(JSON.entry @"a" (JSON.Num 1.0))
+                     (JSON.entry @"b" (JSON.Num 2.0))])))
+      (Result.Success m)
+        (and (= (Map.length &m) 2)
+             (match (Map.get-maybe &m "a") (Maybe.Just v) (= v 1) _ false))
+      _ false)
+    "from-json on Map")
+
+  (assert-true test
+    (Result.error?
+      &(the (Result (Map String Int) String) (Map.from-json &(JSON.Null))))
+    "from-json on Map type mismatch")
+
+  ; Maybe
+
+  (assert-true test
+    (match (the (Result (Maybe Int) String) (Maybe.from-json &(JSON.Null)))
+      (Result.Success m) (Maybe.nothing? &m)
+      _ false)
+    "from-json on Maybe Null gives Nothing")
+
+  (assert-true test
+    (match (the (Result (Maybe Int) String) (Maybe.from-json &(JSON.Num 7.0)))
+      (Result.Success m) (match m (Maybe.Just n) (= n 7) _ false)
+      _ false)
+    "from-json on Maybe with value gives Just")
+
+  (assert-true test
+    (Result.error?
+      &(the (Result (Maybe Int) String) (Maybe.from-json &(JSON.Str @"x"))))
+    "from-json on Maybe with wrong type gives Error")
+
+  ; Roundtrip: to-json then from-json
+
+  (assert-true test
+    (match (Int.from-json &(to-json 42)) (Result.Success n) (= n 42) _ false)
+    "roundtrip Int through to-json and from-json")
+
+  (assert-true test
+    (match (String.from-json &(to-json @"hello"))
+      (Result.Success s) (= &s "hello")
+      _ false)
+    "roundtrip String through to-json and from-json")
+
+  (assert-true test
+    (match (Bool.from-json &(to-json true)) (Result.Success b) b _ false)
+    "roundtrip Bool through to-json and from-json")
+
+  (assert-true test
+    (match (the (Result (Array Int) String) (Array.from-json &(to-json [1 2 3])))
+      (Result.Success arr) (= &arr &[1 2 3])
+      _ false)
+    "roundtrip Array Int through to-json and from-json")
+
   ; =========================================================================
   ; Pretty serializer (pretty-str)
   ; =========================================================================

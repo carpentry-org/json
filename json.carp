@@ -777,3 +777,115 @@ automatically boxed.")
   (defn to-json [arr]
     (JSON.Arr (Array.copy-map &(fn [x] (Box.init (to-json @x))) &arr)))
   (implements to-json Array.to-json))
+
+(defmodule Map
+  (defn to-json [m]
+    (JSON.Obj
+      (Map.kv-reduce
+        &(fn [acc k v] (let [bx (Box.init (to-json @v))] (Map.put acc k &bx)))
+        (the (Map String (Box JSON)) {})
+        &m)))
+  (implements to-json Map.to-json))
+
+(defmodule Maybe
+  (defn to-json [m]
+    (match m (Maybe.Nothing) (JSON.Null) (Maybe.Just x) (to-json x)))
+  (implements to-json Maybe.to-json))
+
+; ===========================================================================
+; from-json interface
+; ===========================================================================
+
+(doc from-json "converts a JSON value to a Carp value.
+
+Returns a `(Result a String)` — a `Success` with the extracted value, or an
+`Error` with a message describing the type mismatch.")
+(definterface from-json (Fn [(Ref JSON)] (Result a String)))
+
+(defmodule Bool
+  (defn from-json [j]
+    (match-ref j
+      (JSON.Bool b) (Result.Success @b)
+      _ (Result.Error @"expected Bool")))
+  (implements from-json Bool.from-json))
+
+(defmodule Int
+  (defn from-json [j]
+    (match-ref j
+      (JSON.Num n) (Result.Success (Double.to-int @n))
+      _ (Result.Error @"expected Num")))
+  (implements from-json Int.from-json))
+
+(defmodule Long
+  (defn from-json [j]
+    (match-ref j
+      (JSON.Num n) (Result.Success (Double.to-long @n))
+      _ (Result.Error @"expected Num")))
+  (implements from-json Long.from-json))
+
+(defmodule Float
+  (defn from-json [j]
+    (match-ref j
+      (JSON.Num n) (Result.Success (Double.to-float @n))
+      _ (Result.Error @"expected Num")))
+  (implements from-json Float.from-json))
+
+(defmodule Double
+  (defn from-json [j]
+    (match-ref j
+      (JSON.Num n) (Result.Success @n)
+      _ (Result.Error @"expected Num")))
+  (implements from-json Double.from-json))
+
+(defmodule String
+  (defn from-json [j]
+    (match-ref j
+      (JSON.Str s) (Result.Success @s)
+      _ (Result.Error @"expected Str")))
+  (implements from-json String.from-json))
+
+(defmodule Array
+  (defn from-json [j]
+    (match-ref j
+      (JSON.Arr a)
+        (Array.reduce
+          &(fn [acc bx]
+            (match acc
+              (Result.Error e) (Result.Error e)
+              (Result.Success out)
+                (match (from-json (Box.peek bx))
+                  (Result.Success val)
+                    (Result.Success (Array.push-back out val))
+                  (Result.Error e) (Result.Error e))))
+          (Result.Success [])
+          a)
+      _ (Result.Error @"expected Arr")))
+  (implements from-json Array.from-json))
+
+(defmodule Map
+  (defn from-json [j]
+    (match-ref j
+      (JSON.Obj m)
+        (Map.kv-reduce
+          &(fn [acc k v]
+            (match acc
+              (Result.Error e) (Result.Error e)
+              (Result.Success out)
+                (match (from-json (Box.peek v))
+                  (Result.Success val)
+                    (let [_ 0] (Result.Success (Map.put out k &val)))
+                  (Result.Error e) (Result.Error e))))
+          (Result.Success {})
+          m)
+      _ (Result.Error @"expected Obj")))
+  (implements from-json Map.from-json))
+
+(defmodule Maybe
+  (defn from-json [j]
+    (match-ref j
+      (JSON.Null) (Result.Success (Maybe.Nothing))
+      _
+        (match (from-json j)
+          (Result.Success v) (Result.Success (Maybe.Just v))
+          (Result.Error e) (Result.Error e))))
+  (implements from-json Maybe.from-json))
