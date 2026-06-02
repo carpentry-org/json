@@ -3,7 +3,7 @@
 ## Installation
 
 ```
-(load \"git@github.com:carpentry-org/json@0.2.1\")
+(load \"git@github.com:carpentry-org/json@0.3.0\")
 ```
 
 ## Usage

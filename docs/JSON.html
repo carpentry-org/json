@@ -53,7 +53,7 @@
                 <div class="module-description">
                     <p>is a JSON data type, parser, and serializer for Carp.</p>
 <h2>Installation</h2>
-<pre><code>(load &quot;git@github.com:carpentry-org/json@0.2.1&quot;)
+<pre><code>(load &quot;git@github.com:carpentry-org/json@0.3.0&quot;)
 </code></pre>
 <h2>Usage</h2>
 <pre><code>; Parse JSON
@@ -694,6 +694,29 @@ message, without position information.</p>
                     <p class="doc">
                         <p>formats a <code>ParseError</code> as a human-readable message
 including the byte position where the error was detected.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#pretty-str">
+                        <h3 id="pretty-str">
+                            pretty-str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a), Int] (Result String JSON.SerializeError))
+                    </p>
+                    <pre class="args">
+                        (pretty-str j indent)
+                    </pre>
+                    <p class="doc">
+                        <p>serializes a JSON value to a human-readable indented string.</p>
+<p>The <code>indent</code> parameter specifies the number of spaces per indentation level.
+Returns a <code>(Result String SerializeError)</code>. Errors are returned only when
+a <code>JSON.Num</code> contains NaN or infinity.</p>
 
                     </p>
                 </div>
