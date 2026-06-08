@@ -514,14 +514,17 @@ message.")
                 (Array.push-back! &out @(Array.unsafe-nth &rb j)))))))
       (String.from-bytes &out)))
 
-  (private str-internal)
-  (hidden str-internal)
+  (private serialize-internal)
+  (hidden serialize-internal)
   ; Forward declaration is required so the recursive calls inside the
   ; lambdas passed to Array.copy-map / Map.kv-reduce below resolve to the
-  ; in-progress definition. Without it, the file builds but segfaults
+  ; in-progress definition.  Without it, the file builds but segfaults
   ; when serializing arrays or objects.
-  (register str-internal (Fn [(Ref JSON)] String))
-  (defn str-internal [j]
+  ;
+  ; When *json-indent-width* > 0 the output is pretty-printed (with
+  ; newlines and indentation); when it is 0 the output is compact.
+  (register serialize-internal (Fn [(Ref JSON)] String))
+  (defn serialize-internal [j]
     (match-ref j
       (JSON.Null) @"null"
       (JSON.Bool b) (if @b @"true" @"false")
@@ -535,18 +538,65 @@ message.")
           (Double.str @n))
       (JSON.Str s) (fmt "\"%s\"" &(escape-json-str s))
       (JSON.Arr a)
-        (let [elems (Array.copy-map &(fn [b] (JSON.str-internal (Box.peek b))) a)]
-          (fmt "[%s]" &(String.join "," &elems)))
+        (if (and (> *json-indent-width* 0) (= 0 (Array.length a)))
+          @"[]"
+          (do
+            (when (> *json-indent-width* 0)
+              (set! *json-pretty-depth* (Int.inc *json-pretty-depth*)))
+            (let-do [elems (Array.copy-map
+                       &(fn [b]
+                         (let [s (JSON.serialize-internal (Box.peek b))]
+                           (if (> *json-indent-width* 0)
+                             (fmt "%s%s"
+                                  &(json-make-indent
+                                    (* *json-pretty-depth* *json-indent-width*))
+                                  &s)
+                             s)))
+                       a)
+                     result (if (> *json-indent-width* 0)
+                       (let [outer (json-make-indent
+                               (* (Int.dec *json-pretty-depth*)
+                                  *json-indent-width*))]
+                         (fmt "[
+%s
+%s]" &(String.join ",
+" &elems) &outer))
+                       (fmt "[%s]" &(String.join "," &elems)))]
+              (when (> *json-indent-width* 0)
+                (set! *json-pretty-depth* (Int.dec *json-pretty-depth*)))
+              result)))
       (JSON.Obj m)
-        (let [pairs (Map.kv-reduce
-                &(fn [acc k v]
-                  (Array.push-back acc
-                                   (fmt "\"%s\":%s"
-                                        &(escape-json-str k)
-                                        &(JSON.str-internal (Box.peek v)))))
-                (the (Array String) [])
-                m)]
-          (fmt "{%s}" &(String.join "," &pairs)))))
+        (if (and (> *json-indent-width* 0) (= 0 (Map.length m)))
+          @"{}"
+          (do
+            (when (> *json-indent-width* 0)
+              (set! *json-pretty-depth* (Int.inc *json-pretty-depth*)))
+            (let-do [pairs (Map.kv-reduce
+                       &(fn [acc k v]
+                         (let [vs (JSON.serialize-internal (Box.peek v))]
+                           (if (> *json-indent-width* 0)
+                             (let [ind (json-make-indent
+                                     (* *json-pretty-depth* *json-indent-width*))
+                                   kv (fmt "\"%s\": %s" &(escape-json-str k) &vs)]
+                               (Array.push-back acc (fmt "%s%s" &ind &kv)))
+                             (Array.push-back acc
+                                              (fmt "\"%s\":%s"
+                                                   &(escape-json-str k)
+                                                   &vs)))))
+                       (the (Array String) [])
+                       m)
+                     result (if (> *json-indent-width* 0)
+                       (let [outer (json-make-indent
+                               (* (Int.dec *json-pretty-depth*)
+                                  *json-indent-width*))]
+                         (fmt "{
+%s
+%s}" &(String.join ",
+" &pairs) &outer))
+                       (fmt "{%s}" &(String.join "," &pairs)))]
+              (when (> *json-indent-width* 0)
+                (set! *json-pretty-depth* (Int.dec *json-pretty-depth*)))
+              result)))))
 
   (doc str "serializes a JSON value to its string representation.
 
@@ -558,75 +608,11 @@ Produces compact output with no extra whitespace.")
   (defn str [j]
     (do
       (set! *serialize-error* (the (Maybe JSON.SerializeError) (Maybe.Nothing)))
-      (let-do [s (JSON.str-internal j)]
+      (set! *json-indent-width* 0)
+      (let-do [s (JSON.serialize-internal j)]
         (match-ref &*serialize-error*
           (Maybe.Just e) (do (ignore s) (Result.Error @e))
           (Maybe.Nothing) (Result.Success s)))))
-
-  ; -------------------------------------------------------------------------
-  ; Pretty serializer
-  ; -------------------------------------------------------------------------
-
-  (private pretty-str-internal)
-  (hidden pretty-str-internal)
-  (register pretty-str-internal (Fn [(Ref JSON)] String))
-  (defn pretty-str-internal [j]
-    (match-ref j
-      (JSON.Null) @"null"
-      (JSON.Bool b) (if @b @"true" @"false")
-      (JSON.Num n)
-        (if (or (Double.nan? @n) (Double.inf? @n))
-          (do
-            (when (Maybe.nothing? &*serialize-error*)
-              (set! *serialize-error*
-                    (Maybe.Just (JSON.SerializeError.NonFiniteNumber @n))))
-            @"null")
-          (Double.str @n))
-      (JSON.Str s) (fmt "\"%s\"" &(escape-json-str s))
-      (JSON.Arr a)
-        (if (= 0 (Array.length a))
-          @"[]"
-          (do
-            (set! *json-pretty-depth* (Int.inc *json-pretty-depth*))
-            (let-do [elems (Array.copy-map
-                       &(fn [b]
-                         (let [ind (json-make-indent
-                                 (* *json-pretty-depth* *json-indent-width*))]
-                           (fmt "%s%s"
-                                &ind
-                                &(JSON.pretty-str-internal (Box.peek b)))))
-                       a)
-                     outer (json-make-indent
-                       (* (Int.dec *json-pretty-depth*) *json-indent-width*))
-                     result (fmt "[
-%s
-%s]" &(String.join ",
-" &elems) &outer)]
-              (set! *json-pretty-depth* (Int.dec *json-pretty-depth*))
-              result)))
-      (JSON.Obj m)
-        (if (= 0 (Map.length m))
-          @"{}"
-          (do
-            (set! *json-pretty-depth* (Int.inc *json-pretty-depth*))
-            (let-do [pairs (Map.kv-reduce
-                       &(fn [acc k v]
-                         (let [ind (json-make-indent
-                                 (* *json-pretty-depth* *json-indent-width*))
-                               kv (fmt "\"%s\": %s"
-                                       &(escape-json-str k)
-                                       &(JSON.pretty-str-internal (Box.peek v)))]
-                           (Array.push-back acc (fmt "%s%s" &ind &kv))))
-                       (the (Array String) [])
-                       m)
-                     outer (json-make-indent
-                       (* (Int.dec *json-pretty-depth*) *json-indent-width*))
-                     result (fmt "{
-%s
-%s}" &(String.join ",
-" &pairs) &outer)]
-              (set! *json-pretty-depth* (Int.dec *json-pretty-depth*))
-              result)))))
 
   (doc pretty-str "serializes a JSON value to a human-readable indented string.
 
@@ -638,7 +624,7 @@ a `JSON.Num` contains NaN or infinity.")
       (set! *serialize-error* (the (Maybe JSON.SerializeError) (Maybe.Nothing)))
       (set! *json-indent-width* indent)
       (set! *json-pretty-depth* 0)
-      (let-do [s (JSON.pretty-str-internal j)]
+      (let-do [s (JSON.serialize-internal j)]
         (match-ref &*serialize-error*
           (Maybe.Just e) (do (ignore s) (Result.Error @e))
           (Maybe.Nothing) (Result.Success s)))))
