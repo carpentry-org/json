@@ -549,21 +549,19 @@ message.")
                            (if (> *json-indent-width* 0)
                              (fmt "%s%s"
                                   &(json-make-indent
-                                     (* *json-pretty-depth*
-                                        *json-indent-width*))
+                                    (* *json-pretty-depth* *json-indent-width*))
                                   &s)
                              s)))
                        a)
-                     result
-                       (if (> *json-indent-width* 0)
-                         (let [outer (json-make-indent
-                                 (* (Int.dec *json-pretty-depth*)
-                                    *json-indent-width*))]
-                           (fmt "[
+                     result (if (> *json-indent-width* 0)
+                       (let [outer (json-make-indent
+                               (* (Int.dec *json-pretty-depth*)
+                                  *json-indent-width*))]
+                         (fmt "[
 %s
 %s]" &(String.join ",
 " &elems) &outer))
-                         (fmt "[%s]" &(String.join "," &elems)))]
+                       (fmt "[%s]" &(String.join "," &elems)))]
               (when (> *json-indent-width* 0)
                 (set! *json-pretty-depth* (Int.dec *json-pretty-depth*)))
               result)))
@@ -578,26 +576,24 @@ message.")
                          (let [vs (JSON.serialize-internal (Box.peek v))]
                            (if (> *json-indent-width* 0)
                              (let [ind (json-make-indent
-                                     (* *json-pretty-depth*
-                                        *json-indent-width*))
-                                   kv (fmt "\"%s\": %s"
-                                           &(escape-json-str k) &vs)]
+                                     (* *json-pretty-depth* *json-indent-width*))
+                                   kv (fmt "\"%s\": %s" &(escape-json-str k) &vs)]
                                (Array.push-back acc (fmt "%s%s" &ind &kv)))
                              (Array.push-back acc
-                               (fmt "\"%s\":%s"
-                                    &(escape-json-str k) &vs)))))
+                                              (fmt "\"%s\":%s"
+                                                   &(escape-json-str k)
+                                                   &vs)))))
                        (the (Array String) [])
                        m)
-                     result
-                       (if (> *json-indent-width* 0)
-                         (let [outer (json-make-indent
-                                 (* (Int.dec *json-pretty-depth*)
-                                    *json-indent-width*))]
-                           (fmt "{
+                     result (if (> *json-indent-width* 0)
+                       (let [outer (json-make-indent
+                               (* (Int.dec *json-pretty-depth*)
+                                  *json-indent-width*))]
+                         (fmt "{
 %s
 %s}" &(String.join ",
 " &pairs) &outer))
-                         (fmt "{%s}" &(String.join "," &pairs)))]
+                       (fmt "{%s}" &(String.join "," &pairs)))]
               (when (> *json-indent-width* 0)
                 (set! *json-pretty-depth* (Int.dec *json-pretty-depth*)))
               result)))))
