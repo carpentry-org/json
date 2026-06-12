@@ -395,23 +395,21 @@ neither of which is representable in JSON.")
           (= c \[)
             (do
               (set! json-depth (Int.inc json-depth))
-              (let-do [result
-                (if (> json-depth json-max-depth)
-                  (do
-                    (json-set-err! (JSON.ParseErrorKind.DepthLimitExceeded))
-                    (JSON.Null))
-                  (json-parse-array s))]
+              (let-do [result (if (> json-depth json-max-depth)
+                         (do
+                           (json-set-err! (JSON.ParseErrorKind.DepthLimitExceeded))
+                           (JSON.Null))
+                         (json-parse-array s))]
                 (set! json-depth (Int.dec json-depth))
                 result))
           (= c \{)
             (do
               (set! json-depth (Int.inc json-depth))
-              (let-do [result
-                (if (> json-depth json-max-depth)
-                  (do
-                    (json-set-err! (JSON.ParseErrorKind.DepthLimitExceeded))
-                    (JSON.Null))
-                  (json-parse-object s))]
+              (let-do [result (if (> json-depth json-max-depth)
+                         (do
+                           (json-set-err! (JSON.ParseErrorKind.DepthLimitExceeded))
+                           (JSON.Null))
+                         (json-parse-object s))]
                 (set! json-depth (Int.dec json-depth))
                 result))
           (or (= c \-) (Char.num? c)) (json-parse-number s)
