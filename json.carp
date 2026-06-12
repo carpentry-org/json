@@ -197,9 +197,9 @@ neither of which is representable in JSON.")
                           (do
                             (set! json-idx (Int.inc json-idx))
                             (let [cp (json-read-hex4 s)]
-                              (if (json-failed?)
-                                (break)
-                                (if (and (>= cp 55296) (<= cp 56319))
+                              (cond
+                                (json-failed?) (break)
+                                (and (>= cp 55296) (<= cp 56319))
                                   (if (and (< (Int.inc json-idx) json-len)
                                            (and (= (String.char-at s json-idx)
                                                    \\)
@@ -209,27 +209,27 @@ neither of which is representable in JSON.")
                                     (do
                                       (set! json-idx (+ json-idx 2))
                                       (let [low (json-read-hex4 s)]
-                                        (if (json-failed?)
-                                          (break)
-                                          (if (and (>= low 56320) (<= low 57343))
+                                        (cond
+                                          (json-failed?) (break)
+                                          (and (>= low 56320) (<= low 57343))
                                             (let [full-cp (+ (+ (* (- cp 55296)
                                                                    1024)
                                                                 (- low 56320))
                                                              65536)]
                                               (json-push-codepoint! &bytes
                                                                     full-cp))
-                                            (do
-                                              (json-set-err!
-                                                (JSON.ParseErrorKind.InvalidLowSurrogate))
-                                              (break))))))
+                                          (do
+                                            (json-set-err!
+                                              (JSON.ParseErrorKind.InvalidLowSurrogate))
+                                            (break)))))
                                     (do
                                       (json-set-err! (JSON.ParseErrorKind.LoneHighSurrogate))
                                       (break)))
-                                  (if (and (>= cp 56320) (<= cp 57343))
-                                    (do
-                                      (json-set-err! (JSON.ParseErrorKind.LoneLowSurrogate))
-                                      (break))
-                                    (json-push-codepoint! &bytes cp))))))
+                                (and (>= cp 56320) (<= cp 57343))
+                                  (do
+                                    (json-set-err! (JSON.ParseErrorKind.LoneLowSurrogate))
+                                    (break))
+                                (json-push-codepoint! &bytes cp))))
                         (do
                           (json-set-err! (JSON.ParseErrorKind.InvalidEscape e))
                           (break))))))
