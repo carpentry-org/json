@@ -68,7 +68,8 @@ where the error was detected.")
     (ExpectedColon [])
     (ExpectedCommaOrEnd [])
     (ExpectedStringKey [])
-    (TrailingContent []))
+    (TrailingContent [])
+    (DepthLimitExceeded []))
 
   (doc ParseError "wraps a `ParseErrorKind` together with the byte position
 in the input where the error was detected.")
@@ -93,6 +94,8 @@ neither of which is representable in JSON.")
 
 (def json-idx 0)
 (def json-len 0)
+(def json-depth 0)
+(def json-max-depth 128)
 (def *parse-error* (the (Maybe JSON.ParseError) (Maybe.Nothing)))
 (def *serialize-error* (the (Maybe JSON.SerializeError) (Maybe.Nothing)))
 (def *json-indent-width* 0)
@@ -194,9 +197,9 @@ neither of which is representable in JSON.")
                           (do
                             (set! json-idx (Int.inc json-idx))
                             (let [cp (json-read-hex4 s)]
-                              (if (json-failed?)
-                                (break)
-                                (if (and (>= cp 55296) (<= cp 56319))
+                              (cond
+                                (json-failed?) (break)
+                                (and (>= cp 55296) (<= cp 56319))
                                   (if (and (< (Int.inc json-idx) json-len)
                                            (and (= (String.char-at s json-idx)
                                                    \\)
@@ -206,27 +209,27 @@ neither of which is representable in JSON.")
                                     (do
                                       (set! json-idx (+ json-idx 2))
                                       (let [low (json-read-hex4 s)]
-                                        (if (json-failed?)
-                                          (break)
-                                          (if (and (>= low 56320) (<= low 57343))
+                                        (cond
+                                          (json-failed?) (break)
+                                          (and (>= low 56320) (<= low 57343))
                                             (let [full-cp (+ (+ (* (- cp 55296)
                                                                    1024)
                                                                 (- low 56320))
                                                              65536)]
                                               (json-push-codepoint! &bytes
                                                                     full-cp))
-                                            (do
-                                              (json-set-err!
-                                                (JSON.ParseErrorKind.InvalidLowSurrogate))
-                                              (break))))))
+                                          (do
+                                            (json-set-err!
+                                              (JSON.ParseErrorKind.InvalidLowSurrogate))
+                                            (break)))))
                                     (do
                                       (json-set-err! (JSON.ParseErrorKind.LoneHighSurrogate))
                                       (break)))
-                                  (if (and (>= cp 56320) (<= cp 57343))
-                                    (do
-                                      (json-set-err! (JSON.ParseErrorKind.LoneLowSurrogate))
-                                      (break))
-                                    (json-push-codepoint! &bytes cp))))))
+                                (and (>= cp 56320) (<= cp 57343))
+                                  (do
+                                    (json-set-err! (JSON.ParseErrorKind.LoneLowSurrogate))
+                                    (break))
+                                (json-push-codepoint! &bytes cp))))
                         (do
                           (json-set-err! (JSON.ParseErrorKind.InvalidEscape e))
                           (break))))))
@@ -389,8 +392,26 @@ neither of which is representable in JSON.")
           (= c \t) (json-parse-true s)
           (= c \f) (json-parse-false s)
           (= c \n) (json-parse-null s)
-          (= c \[) (json-parse-array s)
-          (= c \{) (json-parse-object s)
+          (= c \[)
+            (do
+              (set! json-depth (Int.inc json-depth))
+              (let-do [result (if (> json-depth json-max-depth)
+                         (do
+                           (json-set-err! (JSON.ParseErrorKind.DepthLimitExceeded))
+                           (JSON.Null))
+                         (json-parse-array s))]
+                (set! json-depth (Int.dec json-depth))
+                result))
+          (= c \{)
+            (do
+              (set! json-depth (Int.inc json-depth))
+              (let-do [result (if (> json-depth json-max-depth)
+                         (do
+                           (json-set-err! (JSON.ParseErrorKind.DepthLimitExceeded))
+                           (JSON.Null))
+                         (json-parse-object s))]
+                (set! json-depth (Int.dec json-depth))
+                result))
           (or (= c \-) (Char.num? c)) (json-parse-number s)
           (do (json-set-err! (JSON.ParseErrorKind.UnexpectedChar c)) (JSON.Null)))))))
 
@@ -408,6 +429,7 @@ was detected. Use `JSON.parse-error-str` to format the error for display.")
     (do
       (set! json-idx 0)
       (set! json-len (String.length s))
+      (set! json-depth 0)
       (set! *parse-error* (the (Maybe JSON.ParseError) (Maybe.Nothing)))
       (let-do [j (json-parse-value s)]
         (unless-do (json-failed?)
@@ -446,7 +468,8 @@ message, without position information.")
       (JSON.ParseErrorKind.ExpectedCommaOrEnd)
         @"expected ',' or closing bracket"
       (JSON.ParseErrorKind.ExpectedStringKey) @"expected string key"
-      (JSON.ParseErrorKind.TrailingContent) @"unexpected trailing content"))
+      (JSON.ParseErrorKind.TrailingContent) @"unexpected trailing content"
+      (JSON.ParseErrorKind.DepthLimitExceeded) @"nesting depth limit exceeded"))
 
   (doc parse-error-str "formats a `ParseError` as a human-readable message
 including the byte position where the error was detected.")

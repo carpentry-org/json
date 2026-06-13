@@ -316,6 +316,53 @@
   (assert-true test (parse-err? "'single'") "reject single-quoted string")
 
   ; =========================================================================
+  ; Depth limit
+  ; =========================================================================
+
+  ; 128 nested arrays (at the limit) should succeed
+  (assert-true test
+    (let-do [s @""]
+      (for [i 0 128] (set! s (String.append &s "[")))
+      (set! s (String.append &s "1"))
+      (for [i 0 128] (set! s (String.append &s "]")))
+      (parse-ok? &s))
+    "parse arrays nested to exactly the depth limit")
+
+  ; 129 nested arrays (one over) should fail
+  (assert-true test
+    (let-do [s @""]
+      (for [i 0 129] (set! s (String.append &s "[")))
+      (set! s (String.append &s "1"))
+      (for [i 0 129] (set! s (String.append &s "]")))
+      (parse-err? &s))
+    "reject arrays nested beyond the depth limit")
+
+  ; Verify the error kind is DepthLimitExceeded
+  (assert-true test
+    (let-do [s @""]
+      (for [i 0 129] (set! s (String.append &s "[")))
+      (set! s (String.append &s "1"))
+      (for [i 0 129] (set! s (String.append &s "]")))
+      (match (err-kind &s)
+        (Maybe.Just (JSON.ParseErrorKind.DepthLimitExceeded)) true
+        _ false))
+    "excess nesting gives DepthLimitExceeded")
+
+  ; Deeply nested objects should also be rejected
+  (assert-true test
+    (let-do [s @""]
+      (for [i 0 129] (set! s (String.append &s "{\"k\":")))
+      (set! s (String.append &s "1"))
+      (for [i 0 129] (set! s (String.append &s "}")))
+      (parse-err? &s))
+    "reject objects nested beyond the depth limit")
+
+  ; Flat input is unaffected
+  (assert-true test
+    (parse-ok? "[1,2,3,4,5,6,7,8,9,10]")
+    "flat array is unaffected by depth limit")
+
+  ; =========================================================================
   ; Serializer (str)
   ; =========================================================================
 
