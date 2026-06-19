@@ -31,10 +31,6 @@
   (register nan? (Fn [Double] Bool) "isnan")
   (register inf? (Fn [Double] Bool) "isinf"))
 
-; ===========================================================================
-; Type definition
-; ===========================================================================
-
 (deftype JSON
   (Null [])
   (Bool [Bool])
@@ -42,10 +38,6 @@
   (Str [String])
   (Arr [(Array (Box JSON))])
   (Obj [(Map String (Box JSON))]))
-
-; ===========================================================================
-; Error types
-; ===========================================================================
 
 (defmodule JSON
   (doc ParseErrorKind "describes the cause of a parse failure.
@@ -82,7 +74,6 @@ in the input where the error was detected.")
 neither of which is representable in JSON.")
   (deftype SerializeError (NonFiniteNumber [Double])))
 
-; ===========================================================================
 ; Internal parser state
 ;
 ; Position is threaded via mutable globals to avoid Pair return values
@@ -90,7 +81,6 @@ neither of which is representable in JSON.")
 ; Errors are reported via *parse-error*; parser functions return placeholder
 ; values on the error path and callers must check json-failed? before
 ; consuming the result.
-; ===========================================================================
 
 (def json-idx 0)
 (def json-len 0)
@@ -316,7 +306,6 @@ neither of which is representable in JSON.")
       (json-set-err! (JSON.ParseErrorKind.InvalidLiteral @"false"))
       (JSON.Bool false))))
 
-; Forward declaration for mutual recursion
 (register json-parse-value (Fn [&String] JSON))
 
 (defn json-parse-array [s]
@@ -415,10 +404,6 @@ neither of which is representable in JSON.")
           (or (= c \-) (Char.num? c)) (json-parse-number s)
           (do (json-set-err! (JSON.ParseErrorKind.UnexpectedChar c)) (JSON.Null)))))))
 
-; ===========================================================================
-; Public API
-; ===========================================================================
-
 (defmodule JSON
   (doc parse "parses a JSON value from a string.
 
@@ -439,10 +424,6 @@ was detected. Use `JSON.parse-error-str` to format the error for display.")
         (match-ref &*parse-error*
           (Maybe.Just e) (do (ignore j) (Result.Error @e))
           (Maybe.Nothing) (Result.Success j)))))
-
-  ; -------------------------------------------------------------------------
-  ; Error formatting
-  ; -------------------------------------------------------------------------
 
   (doc parse-error-kind-str "formats a `ParseErrorKind` as a human-readable
 message, without position information.")
@@ -484,10 +465,6 @@ message.")
     (match-ref e
       (JSON.SerializeError.NonFiniteNumber n)
         (fmt "non-finite number cannot be serialized: %f" @n)))
-
-  ; -------------------------------------------------------------------------
-  ; Serializer
-  ; -------------------------------------------------------------------------
 
   (private hex-table)
   (hidden hex-table)
@@ -652,10 +629,6 @@ a `JSON.Num` contains NaN or infinity.")
           (Maybe.Just e) (do (ignore s) (Result.Error @e))
           (Maybe.Nothing) (Result.Success s)))))
 
-  ; -------------------------------------------------------------------------
-  ; Type predicates
-  ; -------------------------------------------------------------------------
-
   (doc null? "checks whether a JSON value is null.")
   (defn null? [j] (match-ref j (JSON.Null) true _ false))
 
@@ -674,10 +647,6 @@ a `JSON.Num` contains NaN or infinity.")
   (doc obj? "checks whether a JSON value is an object.")
   (defn obj? [j] (match-ref j (JSON.Obj _) true _ false))
 
-  ; -------------------------------------------------------------------------
-  ; Value extractors
-  ; -------------------------------------------------------------------------
-
   (doc as-bool "extracts the boolean value, or `Nothing` if not a bool.")
   (defn as-bool [j]
     (match-ref j (JSON.Bool b) (Maybe.Just @b) _ (Maybe.Nothing)))
@@ -693,10 +662,6 @@ a `JSON.Num` contains NaN or infinity.")
 
   (doc as-obj "extracts a copy of the object map, or `Nothing`.")
   (defn as-obj [j] (match-ref j (JSON.Obj m) (Maybe.Just @m) _ (Maybe.Nothing)))
-
-  ; -------------------------------------------------------------------------
-  ; Accessors
-  ; -------------------------------------------------------------------------
 
   (doc get "looks up a key in a JSON object. Returns `Nothing` if the value is
 not an object or the key is absent. Returns a copy of the value.")
@@ -730,10 +695,6 @@ array or the index is out of bounds. Returns a copy of the value.")
       (Maybe.Just @j)
       keys))
 
-  ; -------------------------------------------------------------------------
-  ; Constructors
-  ; -------------------------------------------------------------------------
-
   (doc entry "creates a key-value pair for use with `obj`. The value is
 automatically boxed.")
   (defn entry [k v] (Pair.init k (Box.init v)))
@@ -750,10 +711,6 @@ automatically boxed.")
         &(fn [m p] (Map.put m (Pair.a p) (Pair.b p)))
         (the (Map String (Box JSON)) {})
         &entries))))
-
-; ===========================================================================
-; to-json interface
-; ===========================================================================
 
 (doc to-json "converts a Carp value to its JSON representation.")
 (definterface to-json (Fn [a] JSON))
@@ -800,10 +757,6 @@ automatically boxed.")
   (defn to-json [m]
     (match m (Maybe.Nothing) (JSON.Null) (Maybe.Just x) (to-json x)))
   (implements to-json Maybe.to-json))
-
-; ===========================================================================
-; from-json interface
-; ===========================================================================
 
 (doc from-json "converts a JSON value to a Carp value.
 
