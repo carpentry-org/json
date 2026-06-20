@@ -920,4 +920,251 @@ break")) "str string with newline")
             (Result.Success j2) (= &(ser &j) &(ser &j2))
             _ false)
         _ false))
-    "pretty-str output parses back to equivalent structure"))
+    "pretty-str output parses back to equivalent structure")
+
+  ; =========================================================================
+  ; Mutation helpers -- set-key, delete-key, push, set-nth
+  ; =========================================================================
+
+  ; set-key
+  (assert-equal test
+    "{\"a\":1,\"b\":2}"
+    &(ser
+      &(JSON.set-key
+        (JSON.obj [(JSON.entry @"a" (JSON.Num 1.0))])
+        "b"
+        (JSON.Num 2.0)))
+    "set-key adds a new key")
+
+  (assert-equal test
+    "{\"a\":99}"
+    &(ser
+      &(JSON.set-key
+        (JSON.obj [(JSON.entry @"a" (JSON.Num 1.0))])
+        "a"
+        (JSON.Num 99.0)))
+    "set-key replaces an existing key")
+
+  (assert-equal test
+    "null"
+    &(ser &(JSON.set-key (JSON.Null) "x" (JSON.Num 1.0)))
+    "set-key on non-object returns unchanged")
+
+  ; delete-key
+  (assert-equal test
+    "{}"
+    &(ser &(JSON.delete-key (JSON.obj [(JSON.entry @"a" (JSON.Num 1.0))]) "a"))
+    "delete-key removes existing key")
+
+  (assert-true test
+    (let [j (JSON.obj [(JSON.entry @"a" (JSON.Num 1.0))])]
+      (match (JSON.get &(JSON.delete-key j "z") "a") (Maybe.Just _) true _ false))
+    "delete-key on missing key returns unchanged")
+
+  (assert-equal test
+    "[1]"
+    &(ser &(JSON.delete-key (JSON.Arr [(Box.init (JSON.Num 1.0))]) "x"))
+    "delete-key on non-object returns unchanged")
+
+  ; push
+  (assert-equal test
+    "[1,2,3]"
+    &(ser
+      &(JSON.push
+        (JSON.Arr [(Box.init (JSON.Num 1.0)) (Box.init (JSON.Num 2.0))])
+        (JSON.Num 3.0)))
+    "push appends to array")
+
+  (assert-equal test
+    "[1]"
+    &(ser &(JSON.push (JSON.Arr (the (Array (Box JSON)) [])) (JSON.Num 1.0)))
+    "push to empty array")
+
+  (assert-equal test
+    "null"
+    &(ser &(JSON.push (JSON.Null) (JSON.Num 1.0)))
+    "push on non-array returns unchanged")
+
+  ; set-nth
+  (assert-equal test
+    "[1,99,3]"
+    &(ser
+      &(JSON.set-nth
+        (JSON.Arr
+          [(Box.init (JSON.Num 1.0))
+           (Box.init (JSON.Num 2.0))
+           (Box.init (JSON.Num 3.0))])
+        1
+        (JSON.Num 99.0)))
+    "set-nth replaces element at index")
+
+  (assert-equal test
+    "[99]"
+    &(ser
+      &(JSON.set-nth (JSON.Arr [(Box.init (JSON.Num 1.0))]) 0 (JSON.Num 99.0)))
+    "set-nth replaces first element")
+
+  (assert-equal test
+    "[1,2]"
+    &(ser
+      &(JSON.set-nth
+        (JSON.Arr [(Box.init (JSON.Num 1.0)) (Box.init (JSON.Num 2.0))])
+        5
+        (JSON.Num 99.0)))
+    "set-nth out of bounds returns unchanged")
+
+  (assert-equal test
+    "null"
+    &(ser &(JSON.set-nth (JSON.Null) 0 (JSON.Num 1.0)))
+    "set-nth on non-array returns unchanged")
+
+  ; =========================================================================
+  ; get-in with array indices
+  ; =========================================================================
+
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Str @"a")) (Box.init (JSON.Str @"b"))])]
+      (match (JSON.get-in &j &[@"1"])
+        (Maybe.Just v) (= &(ser &v) "\"b\"")
+        _ false))
+    "get-in indexes into array with numeric string")
+
+  (assert-true test
+    (match (JSON.parse "{\"users\":[{\"name\":\"Alice\"},{\"name\":\"Bob\"}]}")
+      (Result.Success j)
+        (match (JSON.get-in &j &[@"users" @"1" @"name"])
+          (Maybe.Just v) (= &(ser &v) "\"Bob\"")
+          _ false)
+      _ false)
+    "get-in traverses mixed objects and arrays")
+
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Num 1.0))])]
+      (Maybe.nothing? &(JSON.get-in &j &[@"5"])))
+    "get-in returns Nothing for out-of-bounds array index")
+
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Num 1.0))])]
+      (Maybe.nothing? &(JSON.get-in &j &[@"abc"])))
+    "get-in returns Nothing for non-numeric key on array")
+
+  ; =========================================================================
+  ; Deep mutation -- set-in, update-in
+  ; =========================================================================
+
+  ; set-in on objects
+  (assert-equal test
+    "{\"a\":99}"
+    &(ser
+      &(JSON.set-in
+        (JSON.obj [(JSON.entry @"a" (JSON.Num 1.0))])
+        &[@"a"]
+        (JSON.Num 99.0)))
+    "set-in replaces value at single key")
+
+  (assert-true test
+    (match (JSON.parse "{\"a\":{\"b\":1}}")
+      (Result.Success j)
+        (let [updated (JSON.set-in j &[@"a" @"b"] (JSON.Num 99.0))]
+          (match (JSON.get-in &updated &[@"a" @"b"])
+            (Maybe.Just v) (= &(ser &v) "99")
+            _ false))
+      _ false)
+    "set-in replaces nested value")
+
+  ; set-in creates intermediate objects
+  (assert-true test
+    (let [j (JSON.obj [])
+          updated (JSON.set-in j &[@"a" @"b"] (JSON.Num 1.0))]
+      (match (JSON.get-in &updated &[@"a" @"b"])
+        (Maybe.Just v) (= &(ser &v) "1")
+        _ false))
+    "set-in creates intermediate objects for missing keys")
+
+  ; set-in on arrays
+  (assert-equal test
+    "[1,99,3]"
+    &(ser
+      &(JSON.set-in
+        (JSON.Arr
+          [(Box.init (JSON.Num 1.0))
+           (Box.init (JSON.Num 2.0))
+           (Box.init (JSON.Num 3.0))])
+        &[@"1"]
+        (JSON.Num 99.0)))
+    "set-in replaces array element by index")
+
+  ; set-in on mixed structures
+  (assert-true test
+    (match (JSON.parse "{\"users\":[{\"name\":\"Alice\"},{\"name\":\"Bob\"}]}")
+      (Result.Success j)
+        (let [updated (JSON.set-in j
+                                   &[@"users" @"1" @"name"]
+                                   (JSON.Str @"Charlie"))]
+          (match (JSON.get-in &updated &[@"users" @"1" @"name"])
+            (Maybe.Just v) (= &(ser &v) "\"Charlie\"")
+            _ false))
+      _ false)
+    "set-in modifies nested value in mixed object/array structure")
+
+  ; set-in out of bounds is a no-op
+  (assert-equal test
+    "[1,2]"
+    &(ser
+      &(JSON.set-in
+        (JSON.Arr [(Box.init (JSON.Num 1.0)) (Box.init (JSON.Num 2.0))])
+        &[@"5"]
+        (JSON.Num 99.0)))
+    "set-in on out-of-bounds array index returns unchanged")
+
+  ; set-in on non-container is a no-op
+  (assert-equal test
+    "42"
+    &(ser &(JSON.set-in (JSON.Num 42.0) &[@"x"] (JSON.Num 1.0)))
+    "set-in on non-container returns unchanged")
+
+  ; update-in
+  (assert-true test
+    (let [j (JSON.obj [(JSON.entry @"x" (JSON.Num 10.0))])
+          updated (JSON.update-in j
+                                  &[@"x"]
+                                  (fn [n]
+                                    (match (JSON.as-num &n)
+                                      (Maybe.Just x) (JSON.Num (+ x 1.0))
+                                      (Maybe.Nothing) n)))]
+      (match (JSON.get &updated "x") (Maybe.Just v) (= &(ser &v) "11") _ false))
+    "update-in applies function to value at path")
+
+  (assert-true test
+    (match (JSON.parse "{\"a\":{\"b\":5}}")
+      (Result.Success j)
+        (let [updated (JSON.update-in j
+                                      &[@"a" @"b"]
+                                      (fn [n]
+                                        (match (JSON.as-num &n)
+                                          (Maybe.Just x) (JSON.Num (* x 2.0))
+                                          (Maybe.Nothing) n)))]
+          (match (JSON.get-in &updated &[@"a" @"b"])
+            (Maybe.Just v) (= &(ser &v) "10")
+            _ false))
+      _ false)
+    "update-in applies function at nested path")
+
+  (assert-true test
+    (let [j (JSON.obj [(JSON.entry @"x" (JSON.Num 1.0))])
+          updated (JSON.update-in j &[@"missing"] (fn [n] (JSON.Num 99.0)))]
+      (match (JSON.get &updated "x") (Maybe.Just v) (= &(ser &v) "1") _ false))
+    "update-in on missing path returns unchanged")
+
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Num 10.0)) (Box.init (JSON.Num 20.0))])
+          updated (JSON.update-in j
+                                  &[@"0"]
+                                  (fn [n]
+                                    (match (JSON.as-num &n)
+                                      (Maybe.Just x) (JSON.Num (+ x 5.0))
+                                      (Maybe.Nothing) n)))]
+      (match (JSON.get-in &updated &[@"0"])
+        (Maybe.Just v) (= &(ser &v) "15")
+        _ false))
+    "update-in works with array indices"))
