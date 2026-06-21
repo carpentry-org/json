@@ -474,44 +474,40 @@ message.")
   (hidden escape-json-str)
   (defn escape-json-str [s]
     (let-do [out (the (Array Byte) [])
-             u (UTF8.from-string s)]
-      (for [i 0 (UTF8.length &u)]
-        (let [rune (UTF8.unsafe-nth &u i)
-              cp (Char.to-int @(Array.unsafe-nth (Rune.bytes &rune) 0))]
+             sb (String.to-bytes s)]
+      (for [i 0 (Array.length &sb)]
+        (let [b @(Array.unsafe-nth &sb i)
+              cp (Byte.to-int b)]
           (cond
             (= cp 92)
-            (do (Array.push-back! &out 92b) (Array.push-back! &out 92b))
+              (do (Array.push-back! &out 92b) (Array.push-back! &out 92b))
             (= cp 34)
-            (do (Array.push-back! &out 92b) (Array.push-back! &out 34b))
+              (do (Array.push-back! &out 92b) (Array.push-back! &out 34b))
             (= cp 10)
-            (do (Array.push-back! &out 92b) (Array.push-back! &out 110b))
+              (do (Array.push-back! &out 92b) (Array.push-back! &out 110b))
             (= cp 13)
-            (do (Array.push-back! &out 92b) (Array.push-back! &out 114b))
+              (do (Array.push-back! &out 92b) (Array.push-back! &out 114b))
             (= cp 9)
-            (do (Array.push-back! &out 92b) (Array.push-back! &out 116b))
+              (do (Array.push-back! &out 92b) (Array.push-back! &out 116b))
             (= cp 8)
-            (do (Array.push-back! &out 92b) (Array.push-back! &out 98b))
+              (do (Array.push-back! &out 92b) (Array.push-back! &out 98b))
             (= cp 12)
-            (do (Array.push-back! &out 92b) (Array.push-back! &out 102b))
+              (do (Array.push-back! &out 92b) (Array.push-back! &out 102b))
             (< cp 32)
-            (do
-              (Array.push-back! &out 92b)
-              (Array.push-back! &out 117b)
-              (Array.push-back! &out 48b)
-              (Array.push-back! &out 48b)
-              (Array.push-back! &out
-                                (Char.to-byte
-                                  @(Array.unsafe-nth &hex-table
-                                                     (Int.bit-shift-right cp 4))))
-              (Array.push-back! &out
-                                (Char.to-byte
-                                  @(Array.unsafe-nth &hex-table
-                                                     (Int.bit-and cp 15)))))
-            ; Non-control: encode codepoint back to UTF-8 bytes
-            (let [rs (Rune.str &rune)
-                  rb (String.to-bytes &rs)]
-              (for [j 0 (Array.length &rb)]
-                (Array.push-back! &out @(Array.unsafe-nth &rb j)))))))
+              (do
+                (Array.push-back! &out 92b)
+                (Array.push-back! &out 117b)
+                (Array.push-back! &out 48b)
+                (Array.push-back! &out 48b)
+                (Array.push-back! &out
+                                  (Char.to-byte
+                                    @(Array.unsafe-nth &hex-table
+                                                       (Int.bit-shift-right cp 4))))
+                (Array.push-back! &out
+                                  (Char.to-byte
+                                    @(Array.unsafe-nth &hex-table
+                                                       (Int.bit-and cp 15)))))
+            (Array.push-back! &out b))))
       (String.from-bytes &out)))
 
   (private serialize-internal)
