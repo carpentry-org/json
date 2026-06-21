@@ -5,10 +5,6 @@
 (load "Bench.carp")
 (use-all Bench IO)
 
-; ---------------------------------------------------------------------------
-; Input builders
-; ---------------------------------------------------------------------------
-
 (defn make-medium-arr []
   (let-do [parts (the (Array String) [])]
     (for [i 0 100]
@@ -34,10 +30,6 @@
   (match (JSON.parse s)
     (Result.Success j) j
     (Result.Error e) (do (IO.errorln &(JSON.parse-error-str &e)) (JSON.Null))))
-
-; ---------------------------------------------------------------------------
-; Globals (filled by setup)
-; ---------------------------------------------------------------------------
 
 (def small-prim @"42")
 (def small-str @"\"hello world\"")
@@ -65,10 +57,6 @@
     (set! parsed-medium-obj (must-parse &medium-obj))
     (set! parsed-large-arr (must-parse &large-arr))))
 
-; ---------------------------------------------------------------------------
-; Parse benchmarks
-; ---------------------------------------------------------------------------
-
 (defn parse-small-prim [] (ignore (JSON.parse &small-prim)))
 (defn parse-small-str [] (ignore (JSON.parse &small-str)))
 (defn parse-small-obj [] (ignore (JSON.parse &small-obj)))
@@ -78,37 +66,21 @@
 (defn parse-escaped-strs [] (ignore (JSON.parse &escaped-strs)))
 (defn parse-large-arr [] (ignore (JSON.parse &large-arr)))
 
-; ---------------------------------------------------------------------------
-; Serialize benchmarks
-; ---------------------------------------------------------------------------
-
 (defn str-small-obj [] (ignore (JSON.str &parsed-small-obj)))
 (defn str-medium-arr [] (ignore (JSON.str &parsed-medium-arr)))
 (defn str-medium-obj [] (ignore (JSON.str &parsed-medium-obj)))
 (defn str-large-arr [] (ignore (JSON.str &parsed-large-arr)))
-
-; ---------------------------------------------------------------------------
-; Access benchmarks
-; ---------------------------------------------------------------------------
 
 (defn get-key [] (ignore (JSON.get &parsed-small-obj "name")))
 (defn get-in-deep [] (ignore (JSON.get-in &parsed-small-obj &[@"name"])))
 
 (defn nth-mid [] (ignore (JSON.nth &parsed-medium-arr 50)))
 
-; ---------------------------------------------------------------------------
-; Roundtrip benchmark
-; ---------------------------------------------------------------------------
-
 (defn roundtrip-medium []
   (match (JSON.parse &medium-arr)
     (Result.Success j)
       (match (JSON.str &j) (Result.Success s) (ignore (JSON.parse &s)) _ ())
     _ ()))
-
-; ---------------------------------------------------------------------------
-; Main
-; ---------------------------------------------------------------------------
 
 (defn main [] (do
     (setup)

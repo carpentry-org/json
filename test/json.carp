@@ -2,10 +2,6 @@
 (load "Test.carp")
 (use Test)
 
-; ---------------------------------------------------------------------------
-; Helpers
-; ---------------------------------------------------------------------------
-
 (defn pretty [j indent]
   (match (JSON.pretty-str j indent)
     (Result.Success s) s
@@ -30,24 +26,12 @@
     (Result.Error e) (Maybe.Just @(JSON.ParseError.kind &e))
     _ (Maybe.Nothing)))
 
-; ---------------------------------------------------------------------------
-; Tests
-; ---------------------------------------------------------------------------
-
 (deftest test
-  ; =========================================================================
-  ; Primitives
-  ; =========================================================================
-
   (assert-equal test "null" &(roundtrip "null") "parse null")
 
   (assert-equal test "true" &(roundtrip "true") "parse true")
 
   (assert-equal test "false" &(roundtrip "false") "parse false")
-
-  ; =========================================================================
-  ; Numbers
-  ; =========================================================================
 
   (assert-equal test "0" &(roundtrip "0") "parse zero")
 
@@ -77,8 +61,6 @@
 
   (assert-true test (parse-ok? "0.123e4") "parse decimal with exponent")
 
-  ; Number errors
-
   (assert-true test (parse-err? "-") "reject lone minus")
 
   (assert-true test (parse-err? "01") "reject leading zero")
@@ -91,10 +73,6 @@
 
   (assert-true test (parse-err? "1e+") "reject exponent sign without digits")
 
-  ; =========================================================================
-  ; Strings
-  ; =========================================================================
-
   (assert-equal test "\"hello\"" &(roundtrip "\"hello\"") "parse simple string")
 
   (assert-equal test "\"\"" &(roundtrip "\"\"") "parse empty string")
@@ -103,8 +81,6 @@
     "\"hello world\""
     &(roundtrip "\"hello world\"")
     "parse string with space")
-
-  ; Escape sequences
 
   (assert-equal test
     "\"\\\\\""
@@ -134,8 +110,6 @@
     &(roundtrip "\"line1\\nline2\\ttab\"")
     "parse multiple escapes in one string")
 
-  ; Unicode escapes
-
   (assert-true test (parse-ok? "\"\\u0041\"") "parse unicode escape for A")
 
   (assert-true test
@@ -160,8 +134,6 @@
       _ false)
     "surrogate pair produces 4-byte UTF-8")
 
-  ; String errors
-
   (assert-true test (parse-err? "\"unterminated") "reject unterminated string")
 
   (assert-true test (parse-err? "\"bad\\x\"") "reject invalid escape character")
@@ -175,10 +147,6 @@
   (assert-true test
     (parse-err? "\"bad\\uD800\\u0041\"")
     "reject high surrogate followed by non-low-surrogate")
-
-  ; =========================================================================
-  ; Arrays
-  ; =========================================================================
 
   (assert-equal test "[]" &(roundtrip "[]") "parse empty array")
 
@@ -204,8 +172,6 @@
     &(roundtrip "[[[]]]")
     "parse deeply nested empty arrays")
 
-  ; Array whitespace
-
   (assert-equal test
     "[1,2,3]"
     &(roundtrip "[ 1 , 2 , 3 ]")
@@ -216,17 +182,11 @@
   2
 ]") "parse array with newlines")
 
-  ; Array errors
-
   (assert-true test (parse-err? "[") "reject unterminated array")
 
   (assert-true test (parse-err? "[1,]") "reject trailing comma in array")
 
   (assert-true test (parse-err? "[1 2]") "reject missing comma in array")
-
-  ; =========================================================================
-  ; Objects
-  ; =========================================================================
 
   (assert-equal test "{}" &(roundtrip "{}") "parse empty object")
 
@@ -242,8 +202,6 @@
     (parse-ok? "{\"arr\":[1,2],\"obj\":{\"x\":\"y\"}}")
     "parse object with mixed values")
 
-  ; Object whitespace
-
   (assert-true test
     (parse-ok? "{ \"a\" : 1 , \"b\" : 2 }")
     "parse object with whitespace")
@@ -252,8 +210,6 @@
   \"a\": 1,
   \"b\": 2
 }") "parse object with newlines")
-
-  ; Object value access after parse
 
   (assert-true test
     (match (JSON.parse "{\"x\":42}")
@@ -268,8 +224,6 @@
       _ false)
     "object lookup returns Nothing for missing key")
 
-  ; Object errors
-
   (assert-true test (parse-err? "{") "reject unterminated object")
 
   (assert-true test (parse-err? "{\"a\"}") "reject object key without colon")
@@ -280,10 +234,6 @@
 
   (assert-true test (parse-err? "{1:2}") "reject non-string key in object")
 
-  ; =========================================================================
-  ; Whitespace handling
-  ; =========================================================================
-
   (assert-equal test
     "null"
     &(roundtrip "  null  ")
@@ -292,10 +242,6 @@
   (assert-equal test "true" &(roundtrip "\t
 \r true\t
 \r ") "parse with mixed whitespace")
-
-  ; =========================================================================
-  ; Parse errors -- general
-  ; =========================================================================
 
   (assert-true test (parse-err? "") "reject empty input")
 
@@ -314,10 +260,6 @@
   (assert-true test (parse-err? "undefined") "reject undefined")
 
   (assert-true test (parse-err? "'single'") "reject single-quoted string")
-
-  ; =========================================================================
-  ; Depth limit
-  ; =========================================================================
 
   ; 128 nested arrays (at the limit) should succeed
   (assert-true test
@@ -361,10 +303,6 @@
   (assert-true test
     (parse-ok? "[1,2,3,4,5,6,7,8,9,10]")
     "flat array is unaffected by depth limit")
-
-  ; =========================================================================
-  ; Serializer (str)
-  ; =========================================================================
 
   (assert-equal test "null" &(ser &(JSON.Null)) "str null")
 
@@ -415,7 +353,6 @@ break")) "str string with newline")
     &(ser &(JSON.Obj (the (Map String (Box JSON)) {})))
     "str empty object")
 
-  ; Control character escaping
   (assert-true test
     (let [s (ser &(JSON.Str (String.from-chars &[(Char.from-int 1)])))]
       (= &s "\"\\u0001\""))
@@ -425,10 +362,6 @@ break")) "str string with newline")
     (let [s (ser &(JSON.Str (String.from-chars &[(Char.from-int 31)])))]
       (= &s "\"\\u001f\""))
     "str escapes control char 31 as \\u001f")
-
-  ; =========================================================================
-  ; Type predicates
-  ; =========================================================================
 
   (assert-true test (JSON.null? &(JSON.Null)) "null? on Null")
 
@@ -459,10 +392,6 @@ break")) "str string with newline")
   (assert-false test
     (JSON.obj? &(JSON.Arr (the (Array (Box JSON)) [])))
     "obj? on non-Obj")
-
-  ; =========================================================================
-  ; Value extractors
-  ; =========================================================================
 
   (assert-equal test
     true
@@ -515,11 +444,6 @@ break")) "str string with newline")
     (Maybe.nothing? &(JSON.as-obj &(JSON.Arr (the (Array (Box JSON)) []))))
     "as-obj returns Nothing for non-Obj")
 
-  ; =========================================================================
-  ; Accessors -- get, nth, get-in
-  ; =========================================================================
-
-  ; get
   (assert-true test
     (let [j (JSON.obj
             [(JSON.entry @"a" (JSON.Num 1.0))
@@ -536,7 +460,6 @@ break")) "str string with newline")
     (Maybe.nothing? &(JSON.get &(JSON.Arr (the (Array (Box JSON)) [])) "x"))
     "get returns Nothing for non-object")
 
-  ; nth
   (assert-true test
     (let [j (JSON.Arr
             [(Box.init (JSON.Num 10.0))
@@ -554,7 +477,6 @@ break")) "str string with newline")
     (Maybe.nothing? &(JSON.nth &(JSON.Null) 0))
     "nth returns Nothing for non-array")
 
-  ; get-in
   (assert-true test
     (match (JSON.parse "{\"a\":{\"b\":{\"c\":99}}}")
       (Result.Success j)
@@ -576,10 +498,6 @@ break")) "str string with newline")
       _ false)
     "get-in returns Nothing when traversing non-object")
 
-  ; =========================================================================
-  ; Constructors
-  ; =========================================================================
-
   (assert-true test
     (let [j (JSON.obj [])] (JSON.obj? &j))
     "obj with empty entries builds object")
@@ -594,10 +512,6 @@ break")) "str string with newline")
       (match (JSON.get &j "x") (Maybe.Just v) (JSON.bool? &v) _ false))
     "obj builds object accessible via get")
 
-  ; =========================================================================
-  ; Roundtrip: parse then str then parse again
-  ; =========================================================================
-
   (assert-true test
     (let [input "{\"name\":\"carp\",\"version\":1,\"features\":[\"types\",\"macros\"],\"meta\":{\"stable\":true}}"
           pass1 (JSON.parse input)]
@@ -608,10 +522,6 @@ break")) "str string with newline")
             (match pass2 (Result.Success j2) (= &(ser &j1) &(ser &j2)) _ false))
         _ false))
     "parse-str-parse roundtrip preserves structure")
-
-  ; =========================================================================
-  ; Complex / realistic JSON
-  ; =========================================================================
 
   (assert-true test
     (parse-ok?
@@ -639,10 +549,6 @@ break")) "str string with newline")
         (match (JSON.get &j "a") (Maybe.Just v) (= &(ser &v) "2") _ false)
       _ false)
     "duplicate keys: last value wins")
-
-  ; =========================================================================
-  ; Parse error kinds
-  ; =========================================================================
 
   (assert-true test
     (match (err-kind "")
@@ -728,25 +634,17 @@ break")) "str string with newline")
       _ false)
     "invalid escape gives InvalidEscape with the offending char")
 
-  ; Position tracking
-
   (assert-true test
     (match (JSON.parse "   %")
       (Result.Error e) (= @(JSON.ParseError.position &e) 3)
       _ false)
     "error position points at offending byte")
 
-  ; parse-error-str produces a non-empty message
-
   (assert-true test
     (match (JSON.parse "")
       (Result.Error e) (not (String.empty? &(JSON.parse-error-str &e)))
       _ false)
     "parse-error-str produces a non-empty message")
-
-  ; =========================================================================
-  ; Serialize errors
-  ; =========================================================================
 
   (assert-true test
     (let [nan (Double./ 0.0 0.0)]
@@ -771,10 +669,6 @@ break")) "str string with newline")
              (Box.init (JSON.Num 3.0))])]
       (Result.error? &(JSON.str &j)))
     "NaN nested inside an array surfaces as a serialize error")
-
-  ; =========================================================================
-  ; to-json interface
-  ; =========================================================================
 
   (assert-equal test "true" &(ser &(to-json true)) "to-json on Bool")
 
@@ -816,12 +710,6 @@ break")) "str string with newline")
     &(ser &(to-json (Maybe.Just 42)))
     "to-json on Maybe Just")
 
-  ; =========================================================================
-  ; from-json interface
-  ; =========================================================================
-
-  ; Bool
-
   (assert-true test
     (match (Bool.from-json &(JSON.Bool true)) (Result.Success b) b _ false)
     "from-json on Bool true")
@@ -836,8 +724,6 @@ break")) "str string with newline")
     (Result.error? &(Bool.from-json &(JSON.Null)))
     "from-json on Bool type mismatch")
 
-  ; Int
-
   (assert-true test
     (match (Int.from-json &(JSON.Num 42.0)) (Result.Success n) (= n 42) _ false)
     "from-json on Int")
@@ -850,23 +736,17 @@ break")) "str string with newline")
     (Result.error? &(Int.from-json &(JSON.Str @"42")))
     "from-json on Int type mismatch")
 
-  ; Long
-
   (assert-true test
     (match (Long.from-json &(JSON.Num 99.0))
       (Result.Success n) (= n 99l)
       _ false)
     "from-json on Long")
 
-  ; Float
-
   (assert-true test
     (match (Float.from-json &(JSON.Num 1.5))
       (Result.Success n) (Float.= n 1.5f)
       _ false)
     "from-json on Float")
-
-  ; Double
 
   (assert-true test
     (match (Double.from-json &(JSON.Num 3.14))
@@ -878,8 +758,6 @@ break")) "str string with newline")
     (Result.error? &(Double.from-json &(JSON.Bool true)))
     "from-json on Double type mismatch")
 
-  ; String
-
   (assert-true test
     (match (String.from-json &(JSON.Str @"hello"))
       (Result.Success s) (= &s "hello")
@@ -889,8 +767,6 @@ break")) "str string with newline")
   (assert-true test
     (Result.error? &(String.from-json &(JSON.Num 1.0)))
     "from-json on String type mismatch")
-
-  ; Array
 
   (assert-true test
     (match (the (Result (Array Int) String)
@@ -917,8 +793,6 @@ break")) "str string with newline")
       &(the (Result (Array Int) String) (Array.from-json &(JSON.Null))))
     "from-json on Array type mismatch")
 
-  ; Map
-
   (assert-true test
     (match (the (Result (Map String Int) String)
                 (Map.from-json
@@ -936,8 +810,6 @@ break")) "str string with newline")
       &(the (Result (Map String Int) String) (Map.from-json &(JSON.Null))))
     "from-json on Map type mismatch")
 
-  ; Maybe
-
   (assert-true test
     (match (the (Result (Maybe Int) String) (Maybe.from-json &(JSON.Null)))
       (Result.Success m) (Maybe.nothing? &m)
@@ -954,8 +826,6 @@ break")) "str string with newline")
     (Result.error?
       &(the (Result (Maybe Int) String) (Maybe.from-json &(JSON.Str @"x"))))
     "from-json on Maybe with wrong type gives Error")
-
-  ; Roundtrip: to-json then from-json
 
   (assert-true test
     (match (Int.from-json &(to-json 42)) (Result.Success n) (= n 42) _ false)
@@ -976,10 +846,6 @@ break")) "str string with newline")
       (Result.Success arr) (= &arr &[1 2 3])
       _ false)
     "roundtrip Array Int through to-json and from-json")
-
-  ; =========================================================================
-  ; Pretty serializer (pretty-str)
-  ; =========================================================================
 
   (assert-equal test "null" &(pretty &(JSON.Null) 2) "pretty-str null")
 
