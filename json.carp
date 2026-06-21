@@ -693,9 +693,7 @@ array or the index is out of bounds. Returns a copy of the value.")
 elements that parse as non-negative integers index into arrays; all other
 elements are used as object keys. Returns a copy.
 
-```
-(JSON.get-in &j &[@\"data\" @\"users\" @\"0\" @\"name\"])
-```")
+  (JSON.get-in &j &[@\"data\" @\"users\" @\"0\" @\"name\"])")
   (defn get-in [j keys]
     (Array.reduce
       &(fn [mj k]
@@ -711,10 +709,8 @@ automatically boxed.")
 
   (doc obj "builds a JSON object from an array of key-value pairs.
 
-```
-(JSON.obj [(JSON.entry @\"a\" (JSON.Num 1.0))
-           (JSON.entry @\"b\" (JSON.Bool true))])
-```")
+  (JSON.obj [(JSON.entry @\"a\" (JSON.Num 1.0))
+             (JSON.entry @\"b\" (JSON.Bool true))])")
   (defn obj [entries]
     (JSON.Obj
       (Array.reduce
@@ -784,9 +780,7 @@ Path elements that parse as non-negative integers index into arrays;
 all other elements are used as object keys. Missing intermediate object
 keys are created automatically.
 
-```
-(JSON.set-in j &[@\"users\" @\"0\" @\"name\"] (JSON.Str @\"Alice\"))
-```")
+  (JSON.set-in j &[@\"users\" @\"0\" @\"name\"] (JSON.Str @\"Alice\"))")
   (defn set-in [j keys v] (JSON.set-in-at j keys 0 v))
 
   (doc update-in "applies a function to the value at a nested path.
@@ -794,12 +788,10 @@ keys are created automatically.
 Path elements that parse as non-negative integers index into arrays.
 If the path does not resolve to a value, returns the input unchanged.
 
-```
-(JSON.update-in j &[@\"count\"] (fn [n]
-  (match (JSON.as-num &n)
-    (Maybe.Just x) (JSON.Num (+ x 1.0))
-    (Maybe.Nothing) n)))
-```")
+  (JSON.update-in j &[@\"count\"] (fn [n]
+    (match (JSON.as-num &n)
+      (Maybe.Just x) (JSON.Num (+ x 1.0))
+      (Maybe.Nothing) n)))")
   (defn update-in [j keys f]
     (match (JSON.get-in &j keys)
       (Maybe.Just old) (JSON.set-in j keys (f old))
