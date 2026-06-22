@@ -679,15 +679,27 @@ array or the index is out of bounds. Returns a copy of the value.")
           (Maybe.Nothing) (Maybe.Nothing))
       _ (Maybe.Nothing)))
 
-  (doc get-in "performs nested key lookup through objects. Returns a copy.
+  (private get-step)
+  (hidden get-step)
+  (defn get-step [j k]
+    (match-ref j
+      (JSON.Arr _)
+        (match (Int.from-string k)
+          (Maybe.Just i) (if (>= i 0) (JSON.nth j i) (Maybe.Nothing))
+          (Maybe.Nothing) (Maybe.Nothing))
+      _ (JSON.get j k)))
 
-```
-(JSON.get-in &j &[@\"data\" @\"users\"])
-```")
+  (doc get-in "performs nested lookup through objects and arrays. String path
+elements that parse as non-negative integers index into arrays; all other
+elements are used as object keys. Returns a copy.
+
+  (JSON.get-in &j &[@\"data\" @\"users\" @\"0\" @\"name\"])")
   (defn get-in [j keys]
     (Array.reduce
       &(fn [mj k]
-        (match mj (Maybe.Nothing) (Maybe.Nothing) (Maybe.Just j) (JSON.get &j k)))
+        (match mj
+          (Maybe.Nothing) (Maybe.Nothing)
+          (Maybe.Just j) (JSON.get-step &j k)))
       (Maybe.Just @j)
       keys))
 
@@ -697,16 +709,93 @@ automatically boxed.")
 
   (doc obj "builds a JSON object from an array of key-value pairs.
 
-```
-(JSON.obj [(JSON.entry @\"a\" (JSON.Num 1.0))
-           (JSON.entry @\"b\" (JSON.Bool true))])
-```")
+  (JSON.obj [(JSON.entry @\"a\" (JSON.Num 1.0))
+             (JSON.entry @\"b\" (JSON.Bool true))])")
   (defn obj [entries]
     (JSON.Obj
       (Array.reduce
         &(fn [m p] (Map.put m (Pair.a p) (Pair.b p)))
         (the (Map String (Box JSON)) {})
-        &entries))))
+        &entries)))
+
+  (doc set-key "sets a key in a JSON object, replacing any existing value.
+If the value is not an object, returns it unchanged.")
+  (defn set-key [j k v]
+    (match j
+      (JSON.Obj m) (let [bv (Box.init v)] (JSON.Obj (Map.put m k &bv)))
+      other (do (ignore v) other)))
+
+  (doc delete-key "removes a key from a JSON object.
+If the value is not an object or the key is absent, returns it unchanged.")
+  (defn delete-key [j k]
+    (match j (JSON.Obj m) (JSON.Obj (Map.remove m k)) other other))
+
+  (doc push "appends a value to a JSON array.
+If the value is not an array, returns it unchanged.")
+  (defn push [j v]
+    (match j
+      (JSON.Arr a) (JSON.Arr (Array.push-back a (Box.init v)))
+      other (do (ignore v) other)))
+
+  (doc set-nth "replaces the value at index `i` in a JSON array.
+If the value is not an array or the index is out of bounds, returns it
+unchanged.")
+  (defn set-nth [j i v]
+    (match j
+      (JSON.Arr a)
+        (if (and (>= i 0) (< i (Array.length &a)))
+          (JSON.Arr (Array.aset a i (Box.init v)))
+          (do (ignore v) (JSON.Arr a)))
+      other (do (ignore v) other)))
+
+  (private set-in-at)
+  (hidden set-in-at)
+  (register set-in-at (Fn [JSON (Ref (Array String)) Int JSON] JSON))
+  (defn set-in-at [j keys idx v]
+    (if (>= idx (Array.length keys))
+      (do (ignore j) v)
+      (let [k (Array.unsafe-nth keys idx)]
+        (match j
+          (JSON.Arr a)
+            (match (Int.from-string k)
+              (Maybe.Just i)
+                (if (and (>= i 0) (< i (Array.length &a)))
+                  (let [child (Box.unbox @(Array.unsafe-nth &a i))
+                        updated (JSON.set-in-at child keys (Int.inc idx) v)]
+                    (JSON.Arr (Array.aset a i (Box.init updated))))
+                  (do (ignore v) (JSON.Arr a)))
+              (Maybe.Nothing) (do (ignore v) (JSON.Arr a)))
+          (JSON.Obj m)
+            (let [child (match (Map.get-maybe &m k)
+                    (Maybe.Just bx) (Box.unbox bx)
+                    (Maybe.Nothing) (JSON.Obj (the (Map String (Box JSON)) {})))
+                  updated (JSON.set-in-at child keys (Int.inc idx) v)
+                  bv (Box.init updated)]
+              (JSON.Obj (Map.put m k &bv)))
+          other (do (ignore v) other)))))
+
+  (doc set-in "sets a value at a nested path through objects and arrays.
+
+Path elements that parse as non-negative integers index into arrays;
+all other elements are used as object keys. Missing intermediate object
+keys are created automatically.
+
+  (JSON.set-in j &[@\"users\" @\"0\" @\"name\"] (JSON.Str @\"Alice\"))")
+  (defn set-in [j keys v] (JSON.set-in-at j keys 0 v))
+
+  (doc update-in "applies a function to the value at a nested path.
+
+Path elements that parse as non-negative integers index into arrays.
+If the path does not resolve to a value, returns the input unchanged.
+
+  (JSON.update-in j &[@\"count\"] (fn [n]
+    (match (JSON.as-num &n)
+      (Maybe.Just x) (JSON.Num (+ x 1.0))
+      (Maybe.Nothing) n)))")
+  (defn update-in [j keys f]
+    (match (JSON.get-in &j keys)
+      (Maybe.Just old) (JSON.set-in j keys (f old))
+      (Maybe.Nothing) (do (ignore f) j))))
 
 (doc to-json "converts a Carp value to its JSON representation.")
 (definterface to-json (Fn [a] JSON))
