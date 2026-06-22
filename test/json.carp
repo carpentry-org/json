@@ -922,11 +922,6 @@ break")) "str string with newline")
         _ false))
     "pretty-str output parses back to equivalent structure")
 
-  ; =========================================================================
-  ; Mutation helpers -- set-key, delete-key, push, set-nth
-  ; =========================================================================
-
-  ; set-key
   (assert-equal test
     "{\"a\":1,\"b\":2}"
     &(ser
@@ -950,7 +945,6 @@ break")) "str string with newline")
     &(ser &(JSON.set-key (JSON.Null) "x" (JSON.Num 1.0)))
     "set-key on non-object returns unchanged")
 
-  ; delete-key
   (assert-equal test
     "{}"
     &(ser &(JSON.delete-key (JSON.obj [(JSON.entry @"a" (JSON.Num 1.0))]) "a"))
@@ -966,7 +960,6 @@ break")) "str string with newline")
     &(ser &(JSON.delete-key (JSON.Arr [(Box.init (JSON.Num 1.0))]) "x"))
     "delete-key on non-object returns unchanged")
 
-  ; push
   (assert-equal test
     "[1,2,3]"
     &(ser
@@ -985,7 +978,6 @@ break")) "str string with newline")
     &(ser &(JSON.push (JSON.Null) (JSON.Num 1.0)))
     "push on non-array returns unchanged")
 
-  ; set-nth
   (assert-equal test
     "[1,99,3]"
     &(ser
@@ -1018,10 +1010,6 @@ break")) "str string with newline")
     &(ser &(JSON.set-nth (JSON.Null) 0 (JSON.Num 1.0)))
     "set-nth on non-array returns unchanged")
 
-  ; =========================================================================
-  ; get-in with array indices
-  ; =========================================================================
-
   (assert-true test
     (let [j (JSON.Arr [(Box.init (JSON.Str @"a")) (Box.init (JSON.Str @"b"))])]
       (match (JSON.get-in &j &[@"1"])
@@ -1048,11 +1036,6 @@ break")) "str string with newline")
       (Maybe.nothing? &(JSON.get-in &j &[@"abc"])))
     "get-in returns Nothing for non-numeric key on array")
 
-  ; =========================================================================
-  ; Deep mutation -- set-in, update-in
-  ; =========================================================================
-
-  ; set-in on objects
   (assert-equal test
     "{\"a\":99}"
     &(ser
@@ -1072,7 +1055,6 @@ break")) "str string with newline")
       _ false)
     "set-in replaces nested value")
 
-  ; set-in creates intermediate objects
   (assert-true test
     (let [j (JSON.obj [])
           updated (JSON.set-in j &[@"a" @"b"] (JSON.Num 1.0))]
@@ -1081,7 +1063,6 @@ break")) "str string with newline")
         _ false))
     "set-in creates intermediate objects for missing keys")
 
-  ; set-in on arrays
   (assert-equal test
     "[1,99,3]"
     &(ser
@@ -1094,7 +1075,6 @@ break")) "str string with newline")
         (JSON.Num 99.0)))
     "set-in replaces array element by index")
 
-  ; set-in on mixed structures
   (assert-true test
     (match (JSON.parse "{\"users\":[{\"name\":\"Alice\"},{\"name\":\"Bob\"}]}")
       (Result.Success j)
@@ -1107,7 +1087,6 @@ break")) "str string with newline")
       _ false)
     "set-in modifies nested value in mixed object/array structure")
 
-  ; set-in out of bounds is a no-op
   (assert-equal test
     "[1,2]"
     &(ser
@@ -1117,13 +1096,11 @@ break")) "str string with newline")
         (JSON.Num 99.0)))
     "set-in on out-of-bounds array index returns unchanged")
 
-  ; set-in on non-container is a no-op
   (assert-equal test
     "42"
     &(ser &(JSON.set-in (JSON.Num 42.0) &[@"x"] (JSON.Num 1.0)))
     "set-in on non-container returns unchanged")
 
-  ; update-in
   (assert-true test
     (let [j (JSON.obj [(JSON.entry @"x" (JSON.Num 10.0))])
           updated (JSON.update-in j
