@@ -53,7 +53,7 @@
                 <div class="module-description">
                     <p>is a JSON data type, parser, and serializer for Carp.</p>
 <h2>Installation</h2>
-<pre><code>(load &quot;git@github.com:carpentry-org/json@0.3.0&quot;)
+<pre><code>(load &quot;git@github.com:carpentry-org/json@0.4.0&quot;)
 </code></pre>
 <h2>Usage</h2>
 <pre><code>; Parse JSON
@@ -445,6 +445,27 @@ neither of which is representable in JSON.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#delete-key">
+                        <h3 id="delete-key">
+                            delete-key
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [JSON, (Ref String a)] JSON)
+                    </p>
+                    <pre class="args">
+                        (delete-key j k)
+                    </pre>
+                    <p class="doc">
+                        <p>removes a key from a JSON object.
+If the value is not an object or the key is absent, returns it unchanged.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#entry">
                         <h3 id="entry">
                             entry
@@ -502,9 +523,10 @@ not an object or the key is absent. Returns a copy of the value.</p>
                         (get-in j keys)
                     </pre>
                     <p class="doc">
-                        <p>performs nested key lookup through objects. Returns a copy.</p>
-<pre><code>(JSON.get-in &amp;j &amp;[@&quot;data&quot; @&quot;users&quot;])
-</code></pre>
+                        <p>performs nested lookup through objects and arrays. String path
+elements that parse as non-negative integers index into arrays; all other
+elements are used as object keys. Returns a copy.</p>
+<p>(JSON.get-in &amp;j &amp;[@&quot;data&quot; @&quot;users&quot; @&quot;0&quot; @&quot;name&quot;])</p>
 
                     </p>
                 </div>
@@ -606,9 +628,8 @@ array or the index is out of bounds. Returns a copy of the value.</p>
                     </pre>
                     <p class="doc">
                         <p>builds a JSON object from an array of key-value pairs.</p>
-<pre><code>(JSON.obj [(JSON.entry @&quot;a&quot; (JSON.Num 1.0))
-           (JSON.entry @&quot;b&quot; (JSON.Bool true))])
-</code></pre>
+<p>(JSON.obj [(JSON.entry @&quot;a&quot; (JSON.Num 1.0))
+(JSON.entry @&quot;b&quot; (JSON.Bool true))])</p>
 
                     </p>
                 </div>
@@ -741,6 +762,27 @@ a <code>JSON.Num</code> contains NaN or infinity.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#push">
+                        <h3 id="push">
+                            push
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [JSON, JSON] JSON)
+                    </p>
+                    <pre class="args">
+                        (push j v)
+                    </pre>
+                    <p class="doc">
+                        <p>appends a value to a JSON array.
+If the value is not an array, returns it unchanged.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#serialize-error-str">
                         <h3 id="serialize-error-str">
                             serialize-error-str
@@ -758,6 +800,73 @@ a <code>JSON.Num</code> contains NaN or infinity.</p>
                     <p class="doc">
                         <p>formats a <code>SerializeError</code> as a human-readable
 message.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-in">
+                        <h3 id="set-in">
+                            set-in
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [JSON, (Ref (Array String) a), JSON] JSON)
+                    </p>
+                    <pre class="args">
+                        (set-in j keys v)
+                    </pre>
+                    <p class="doc">
+                        <p>sets a value at a nested path through objects and arrays.</p>
+<p>Path elements that parse as non-negative integers index into arrays;
+all other elements are used as object keys. Missing intermediate object
+keys are created automatically.</p>
+<p>(JSON.set-in j &amp;[@&quot;users&quot; @&quot;0&quot; @&quot;name&quot;] (JSON.Str @&quot;Alice&quot;))</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-key">
+                        <h3 id="set-key">
+                            set-key
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [JSON, (Ref String a), JSON] JSON)
+                    </p>
+                    <pre class="args">
+                        (set-key j k v)
+                    </pre>
+                    <p class="doc">
+                        <p>sets a key in a JSON object, replacing any existing value.
+If the value is not an object, returns it unchanged.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-nth">
+                        <h3 id="set-nth">
+                            set-nth
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [JSON, Int, JSON] JSON)
+                    </p>
+                    <pre class="args">
+                        (set-nth j i v)
+                    </pre>
+                    <p class="doc">
+                        <p>replaces the value at index <code>i</code> in a JSON array.
+If the value is not an array or the index is out of bounds, returns it
+unchanged.</p>
 
                     </p>
                 </div>
@@ -802,6 +911,32 @@ in JSON.</p>
                     </pre>
                     <p class="doc">
                         <p>checks whether a JSON value is a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-in">
+                        <h3 id="update-in">
+                            update-in
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [JSON, (Ref (Array String) a), (Fn [JSON] JSON b)] JSON)
+                    </p>
+                    <pre class="args">
+                        (update-in j keys f)
+                    </pre>
+                    <p class="doc">
+                        <p>applies a function to the value at a nested path.</p>
+<p>Path elements that parse as non-negative integers index into arrays.
+If the path does not resolve to a value, returns the input unchanged.</p>
+<p>(JSON.update-in j &amp;[@&quot;count&quot;] (fn [n]
+(match (JSON.as-num &amp;n)
+(Maybe.Just x) (JSON.Num (+ x 1.0))
+(Maybe.Nothing) n)))</p>
 
                     </p>
                 </div>
