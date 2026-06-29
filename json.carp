@@ -936,3 +936,242 @@ Returns a `(Result a String)` — a `Success` with the extracted value, or an
           (Result.Success v) (Result.Success (Maybe.Just v))
           (Result.Error e) (Result.Error e))))
   (implements from-json Maybe.from-json))
+
+(defmodule JSON
+  (hidden lit-at)
+  (defndynamic lit-at [src pos]
+    (if (< pos (String.length src)) (String.slice src pos (+ pos 1)) ""))
+
+  (hidden lit-ws?)
+  (defndynamic lit-ws? [ch] (or (= ch " ") (= ch "\t") (= ch "
+") (= ch "\r")))
+
+  (hidden lit-skip-ws)
+  (defndynamic lit-skip-ws [src pos]
+    (if (JSON.lit-ws? (JSON.lit-at src pos))
+      (JSON.lit-skip-ws src (+ pos 1))
+      pos))
+
+  (hidden lit-index-of)
+  (defndynamic lit-index-of [ch lst idx]
+    (if (empty? lst)
+      -1
+      (if (= (car lst) ch) idx (JSON.lit-index-of ch (cdr lst) (+ idx 1)))))
+
+  (hidden lit-digit-val)
+  (defndynamic lit-digit-val [ch]
+    (JSON.lit-index-of ch (list "0" "1" "2" "3" "4" "5" "6" "7" "8" "9") 0))
+
+  (hidden lit-digit?)
+  (defndynamic lit-digit? [ch] (not (< (JSON.lit-digit-val ch) 0)))
+
+  ; collect a run of digits into integer `acc`; returns (list acc count next-pos)
+  (hidden lit-digits)
+  (defndynamic lit-digits [src pos acc cnt]
+    (let [ch (JSON.lit-at src pos)]
+      (if (JSON.lit-digit? ch)
+        (JSON.lit-digits src
+                         (+ pos 1)
+                         (+ (* acc 10) (JSON.lit-digit-val ch))
+                         (+ cnt 1))
+        (list acc cnt pos))))
+
+  (hidden lit-pow10)
+  (defndynamic lit-pow10 [power]
+    (if (= power 0) 1.0 (* 10.0 (JSON.lit-pow10 (- power 1)))))
+
+  ; returns (list (JSON.Num <double>) next-pos)
+  (hidden lit-number)
+  (defndynamic lit-number [src pos]
+    (let [minus? (= (JSON.lit-at src pos) "-")
+          int-start (if minus? (+ pos 1) pos)
+          int-part (JSON.lit-digits src int-start 0 0)
+          int-count (cadr int-part)
+          after-int (caddr int-part)]
+      (if (= int-count 0)
+        (macro-error
+          (list "JSON.literal: expected a digit in number at index " int-start))
+        (let [has-dot (= (JSON.lit-at src after-int) ".")
+              frac-part (if has-dot
+                (JSON.lit-digits src (+ after-int 1) (car int-part) 0)
+                int-part)
+              mantissa (car frac-part)
+              frac-count (if has-dot (cadr frac-part) 0)
+              after-frac (caddr frac-part)]
+          (if (and has-dot (= frac-count 0))
+            (macro-error
+              (list
+                "JSON.literal: expected a digit after '.' at index "
+                (+ after-int 1)))
+            (let [exp-ch (JSON.lit-at src after-frac)
+                  has-exp (or (= exp-ch "e") (= exp-ch "E"))
+                  exp-sign (if has-exp (JSON.lit-at src (+ after-frac 1)) "")
+                  exp-neg (= exp-sign "-")
+                  exp-start (if has-exp
+                    (if (or exp-neg (= exp-sign "+"))
+                      (+ after-frac 2)
+                      (+ after-frac 1))
+                    after-frac)
+                  exp-part (if has-exp
+                    (JSON.lit-digits src exp-start 0 0)
+                    (list 0 0 exp-start))
+                  after-exp (caddr exp-part)]
+              (if (and has-exp (= (cadr exp-part) 0))
+                (macro-error
+                  (list
+                    "JSON.literal: expected a digit in exponent at index "
+                    exp-start))
+                (let [signed-exp (if exp-neg (- 0 (car exp-part)) (car exp-part))
+                      scale (- signed-exp frac-count)
+                      magnitude (* 1.0 mantissa)
+                      value (if (< scale 0)
+                        (/ magnitude (JSON.lit-pow10 (- 0 scale)))
+                        (* magnitude (JSON.lit-pow10 scale)))]
+                  (list
+                    (list 'JSON.Num (if minus? (- 0.0 value) value))
+                    after-exp)))))))))
+
+  (hidden lit-unescape)
+  (defndynamic lit-unescape [esc pos]
+    (cond (= esc "\"") "\"" (= esc "\\") "\\" (= esc "/") "/" (= esc "n") "
+" (= esc "r") "\r" (= esc "t") "\t" (or (= esc "b") (= esc "f") (= esc "u"))
+        (macro-error
+          (list "JSON.literal: the \\"
+                esc
+                " escape is unsupported in a literal (use JSON.parse) at index "
+                pos)) (macro-error
+        (list "JSON.literal: invalid escape sequence at index " pos))))
+
+  (hidden lit-scan-string)
+  (defndynamic lit-scan-string [src pos acc]
+    (let [ch (JSON.lit-at src pos)]
+      (cond
+        (= ch "") (macro-error (list "JSON.literal: unterminated string"))
+        (= ch "\"") (list acc (+ pos 1))
+        (= ch "\\")
+          (JSON.lit-scan-string src
+                                (+ pos 2)
+                                (Dynamic.String.concat
+                                  (list acc
+                                        (JSON.lit-unescape (JSON.lit-at src
+                                                                        (+ pos 1))
+                                                           pos))))
+        (JSON.lit-scan-string src
+                              (+ pos 1)
+                              (Dynamic.String.concat (list acc ch))))))
+
+  ; parse a string starting at the opening quote; returns (list decoded next-pos)
+  (hidden lit-string)
+  (defndynamic lit-string [src pos] (JSON.lit-scan-string src (+ pos 1) ""))
+
+  (hidden lit-keyword?)
+  (defndynamic lit-keyword? [src pos kw]
+    (= kw
+       (if (not (< (String.length src) (+ pos (String.length kw))))
+         (String.slice src pos (+ pos (String.length kw)))
+         "")))
+
+  (hidden lit-array-elems)
+  (defndynamic lit-array-elems [src pos acc]
+    (let [res (JSON.lit-value src (JSON.lit-skip-ws src pos))
+          acc2 (append acc (list (list 'Box.init (car res))))
+          nxt (JSON.lit-skip-ws src (cadr res))
+          ch (JSON.lit-at src nxt)]
+      (cond
+        (= ch ",") (JSON.lit-array-elems src (+ nxt 1) acc2)
+        (= ch "]") (list acc2 (+ nxt 1))
+        (macro-error
+          (list "JSON.literal: expected ',' or ']' in array at index " nxt)))))
+
+  (hidden lit-array)
+  (defndynamic lit-array [src pos]
+    (let [beg (JSON.lit-skip-ws src (+ pos 1))]
+      (if (= (JSON.lit-at src beg) "]")
+        (list (list 'JSON.Arr (list 'the '(Array (Box JSON)) (array))) (+ beg 1))
+        (let [res (JSON.lit-array-elems src beg (list))]
+          (list
+            (list 'JSON.Arr
+                  (list 'the
+                        '(Array (Box JSON))
+                        (list-to-array-internal (car res) (array))))
+            (cadr res))))))
+
+  (hidden lit-object-entries)
+  (defndynamic lit-object-entries [src pos acc]
+    (let [key-start (JSON.lit-skip-ws src pos)]
+      (if (= (JSON.lit-at src key-start) "\"")
+        (let [key-res (JSON.lit-string src key-start)
+              colon (JSON.lit-skip-ws src (cadr key-res))]
+          (if (= (JSON.lit-at src colon) ":")
+            (let [val-res (JSON.lit-value src (JSON.lit-skip-ws src (+ colon 1)))
+                  acc2 (append acc
+                               (list
+                                 (list 'JSON.entry
+                                       (list 'copy (car key-res))
+                                       (car val-res))))
+                  nxt (JSON.lit-skip-ws src (cadr val-res))
+                  ch (JSON.lit-at src nxt)]
+              (cond
+                (= ch ",") (JSON.lit-object-entries src (+ nxt 1) acc2)
+                (= ch "}") (list acc2 (+ nxt 1))
+                (macro-error
+                  (list
+                    "JSON.literal: expected ',' or '}' in object at index "
+                    nxt))))
+            (macro-error
+              (list
+                "JSON.literal: expected ':' after object key at index "
+                colon))))
+        (macro-error
+          (list
+            "JSON.literal: expected string key in object at index "
+            key-start)))))
+
+  (hidden lit-object)
+  (defndynamic lit-object [src pos]
+    (let [beg (JSON.lit-skip-ws src (+ pos 1))]
+      (if (= (JSON.lit-at src beg) "}")
+        (list (list 'JSON.obj (array)) (+ beg 1))
+        (let [res (JSON.lit-object-entries src beg (list))]
+          (list
+            (list 'JSON.obj (list-to-array-internal (car res) (array)))
+            (cadr res))))))
+
+  (hidden lit-value)
+  (defndynamic lit-value [src pos]
+    (let [ch (JSON.lit-at src pos)]
+      (cond
+        (= ch "{") (JSON.lit-object src pos)
+        (= ch "[") (JSON.lit-array src pos)
+        (= ch "\"")
+          (let [res (JSON.lit-string src pos)]
+            (list (list 'JSON.Str (list 'copy (car res))) (cadr res)))
+        (JSON.lit-keyword? src pos "true")
+          (list (list 'JSON.Bool true) (+ pos 4))
+        (JSON.lit-keyword? src pos "false")
+          (list (list 'JSON.Bool false) (+ pos 5))
+        (JSON.lit-keyword? src pos "null") (list (list 'JSON.Null) (+ pos 4))
+        (or (= ch "-") (JSON.lit-digit? ch)) (JSON.lit-number src pos)
+        (= ch "") (macro-error (list "JSON.literal: unexpected end of input"))
+        (macro-error (list "JSON.literal: unexpected character at index " pos)))))
+
+  (doc literal "parses a JSON string literal at compile time and expands to the
+equivalent `JSON` constructor expression.
+
+  (JSON.literal \"{\\\"xs\\\": [1, true], \\\"y\\\": null}\")
+
+The whole value is parsed during macro expansion, so there is no runtime parse
+and no `Result` to unwrap. `null`, booleans, numbers, arrays, objects, and
+strings with the `\\\" \\\\ \\/ \\n \\r \\t` escapes are supported. The `\\b`,
+`\\f`, and `\\uXXXX` escapes are not — use `JSON.parse` for input that needs
+them (non-ASCII text can also be written directly as UTF-8). Malformed input is
+reported as a compile-time error.")
+  (defmacro literal [src]
+    (if (not (string? src))
+      (macro-error "JSON.literal expects a string literal")
+      (let [res (JSON.lit-value src (JSON.lit-skip-ws src 0))
+            trailing (JSON.lit-skip-ws src (cadr res))]
+        (if (< trailing (String.length src))
+          (macro-error
+            (list "JSON.literal: unexpected trailing content at index " trailing))
+          (car res))))))

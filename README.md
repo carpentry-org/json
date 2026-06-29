@@ -45,6 +45,24 @@ implemented for `Bool`, `Int`, `Long`, `Float`, `Double`, `String`, and
 (to-json [@"a" @"b"]) ; => (JSON.Arr [(JSON.Str "a") (JSON.Str "b")])
 ```
 
+When the JSON is known at compile time, `JSON.literal` parses a string literal
+during macro expansion and expands to the equivalent constructor expression, so
+there is no runtime parse and no `Result` to unwrap:
+
+```clojure
+(def empty-provision
+  (JSON.literal "{\"created_fields\": [], \"created_tags\": []}"))
+; expands to:
+;   (JSON.obj [(JSON.entry @"created_fields" (JSON.Arr (the (Array (Box JSON)) [])))
+;              (JSON.entry @"created_tags" (JSON.Arr (the (Array (Box JSON)) [])))])
+```
+
+`null`, booleans, numbers, arrays, objects, and strings with the
+`\" \\ \/ \n \r \t` escapes are supported. Malformed input is reported as a
+compile-time error. The `\b`, `\f`, and `\uXXXX` escapes are not handled — use
+`JSON.parse` for input that needs them (non-ASCII text can also be written
+directly as UTF-8).
+
 ### Serialization
 
 Convert any `JSON` value back to a string with `str`:

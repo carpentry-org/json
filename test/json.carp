@@ -1144,4 +1144,51 @@ break")) "str string with newline")
       (match (JSON.get-in &updated &[@"0"])
         (Maybe.Just v) (= &(ser &v) "15")
         _ false))
-    "update-in works with array indices"))
+    "update-in works with array indices")
+
+  ; JSON.literal expands at compile time. Malformed input is rejected during
+  ; macro expansion (a compile error), so it cannot be exercised from this
+  ; runtime suite; the doc string lists examples. Objects are compared against
+  ; the runtime parser because JSON object key order is not insertion order.
+  (assert-equal test "null" &(ser &(JSON.literal "null")) "literal null")
+  (assert-equal test "true" &(ser &(JSON.literal "true")) "literal true")
+  (assert-equal test "false" &(ser &(JSON.literal "false")) "literal false")
+  (assert-equal test
+    "42"
+    &(ser &(JSON.literal "  42 "))
+    "literal number ignores surrounding whitespace")
+  (assert-equal test
+    "-3.14"
+    &(ser &(JSON.literal "-3.14"))
+    "literal negative decimal")
+  (assert-equal test
+    "0.25"
+    &(ser &(JSON.literal "2.5e-1"))
+    "literal exponent notation")
+  (assert-equal test "[]" &(ser &(JSON.literal "[]")) "literal empty array")
+  (assert-equal test "{}" &(ser &(JSON.literal "{}")) "literal empty object")
+  (assert-equal test
+    "[1,2,[3,true],null]"
+    &(ser &(JSON.literal "[1, 2, [3, true], null]"))
+    "literal nested array")
+  (assert-equal test
+    &(roundtrip "\"a\\tb\\n\"")
+    &(ser &(JSON.literal "\"a\\tb\\n\""))
+    "literal string escapes match the parser")
+  (assert-equal test
+    &(roundtrip "{\"created_fields\": [], \"created_tags\": []}")
+    &(ser &(JSON.literal "{\"created_fields\": [], \"created_tags\": []}"))
+    "literal object from the issue example")
+  (assert-equal test
+    &(roundtrip
+      "{\"name\": \"carp\", \"nums\": [1, 2.5], \"ok\": true, \"meta\": {\"v\": 1}}")
+    &(ser
+      &(JSON.literal
+        "{\"name\": \"carp\", \"nums\": [1, 2.5], \"ok\": true, \"meta\": {\"v\": 1}}"))
+    "literal nested object matches the runtime parser")
+  (assert-equal test
+    "\"carp\""
+    &(match (JSON.get &(JSON.literal "{\"name\": \"carp\"}") "name")
+      (Maybe.Just v) (ser &v)
+      (Maybe.Nothing) @"<none>")
+    "literal object is usable with JSON.get"))
