@@ -77,6 +77,27 @@ in JSON.
 (JSON.as-bool &(JSON.Bool true))  ; => (Maybe.Just true)
 ```
 
+### JSON Pointer
+
+`JSON.Pointer` implements [RFC 6901](https://www.rfc-editor.org/rfc/rfc6901),
+which addresses a value inside a document with a string like `/foo/0/bar`:
+
+```clojure
+(JSON.Pointer.get &doc "/foo/0")  ; => (Maybe.Just ...)
+(JSON.Pointer.get &doc "")        ; => the whole document
+(JSON.Pointer.get &doc "/a~1b")   ; => the value under the key "a/b"
+```
+
+Array tokens must be `0` or a positive integer without a leading zero; the
+`-` end-of-array token, out-of-range indices, and invalid pointers all return
+`Nothing`. Use `escape`/`unescape` to build or decode a single reference token
+(`~` becomes `~0`, `/` becomes `~1`):
+
+```clojure
+(JSON.Pointer.escape "a/b")     ; => "a~1b"
+(JSON.Pointer.unescape "m~0n")  ; => "m~n"
+```
+
 ### Type predicates
 
 ```clojure

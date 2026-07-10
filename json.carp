@@ -797,6 +797,114 @@ If the path does not resolve to a value, returns the input unchanged.
       (Maybe.Just old) (JSON.set-in j keys (f old))
       (Maybe.Nothing) (do (ignore f) j))))
 
+(defmodule JSON
+  (doc Pointer "implements RFC 6901 JSON Pointer, addressing a value inside a
+JSON document with a string such as `/foo/0/bar`.")
+  (defmodule Pointer
+    (private all-digits?)
+    (hidden all-digits?)
+    (defn all-digits? [s]
+      (let-do [ok true
+               n (String.length s)]
+        (for [i 0 n] (unless (Char.num? (String.char-at s i)) (set! ok false)))
+        ok))
+
+    (private index?)
+    (hidden index?)
+    (defn index? [s]
+      (let [n (String.length s)]
+        (cond
+          (= n 0) false
+          (= n 1) (Char.num? (String.head s))
+          (and (/= (String.head s) \0) (all-digits? s)))))
+
+    (private array-index)
+    (hidden array-index)
+    (defn array-index [s] (if (index? s) (Int.from-string s) (Maybe.Nothing)))
+
+    (doc unescape "decodes a single reference token, turning `~1` back into `/`
+and `~0` back into `~` in a single left-to-right pass, per RFC 6901.")
+    (defn unescape [s]
+      (let-do [cs (String.chars s)
+               n (Array.length &cs)
+               out []
+               i 0]
+        (while (< i n)
+          (let [c @(Array.unsafe-nth &cs i)]
+            (if (and (= c \~) (< (Int.inc i) n))
+              (let [nx @(Array.unsafe-nth &cs (Int.inc i))]
+                (cond
+                  (= nx \1)
+                    (do (set! out (Array.push-back out \/)) (set! i (+ i 2)))
+                  (= nx \0)
+                    (do (set! out (Array.push-back out \~)) (set! i (+ i 2)))
+                  (do (set! out (Array.push-back out c)) (set! i (Int.inc i)))))
+              (do (set! out (Array.push-back out c)) (set! i (Int.inc i))))))
+        (String.from-chars &out)))
+
+    (doc escape "encodes a single reference token, turning `~` into `~0` and `/`
+into `~1` so it can be embedded in a pointer string.")
+    (defn escape [s]
+      (let-do [cs (String.chars s)
+               n (Array.length &cs)
+               out []]
+        (for [i 0 n]
+          (let [c @(Array.unsafe-nth &cs i)]
+            (cond
+              (= c \~) (set! out (Array.push-back (Array.push-back out \~) \0))
+              (= c \/) (set! out (Array.push-back (Array.push-back out \~) \1))
+              (set! out (Array.push-back out c)))))
+        (String.from-chars &out)))
+
+    (doc parse "parses a pointer string into its decoded reference tokens.
+
+The empty string yields an empty token array, which addresses the whole
+document. A non-empty pointer must begin with `/`, otherwise `Nothing` is
+returned. Empty tokens are preserved: a trailing `/` addresses the
+empty-string key.")
+    (defn parse [p]
+      (cond
+        (String.empty? p) (Maybe.Just (the (Array String) []))
+        (/= (String.head p) \/) (Maybe.Nothing)
+        (let-do [parts (String.split-by p &[\/])
+                 out []]
+          (for [i 1 (Array.length &parts)]
+            (set! out
+                  (Array.push-back out (unescape (Array.unsafe-nth &parts i)))))
+          (Maybe.Just out))))
+
+    (private step)
+    (hidden step)
+    (defn step [j tok]
+      (match-ref j
+        (JSON.Obj _) (JSON.get j tok)
+        (JSON.Arr _)
+          (match (array-index tok)
+            (Maybe.Just i) (JSON.nth j i)
+            (Maybe.Nothing) (Maybe.Nothing))
+        _ (Maybe.Nothing)))
+
+    (doc get "resolves an RFC 6901 JSON Pointer against `doc`, returning a copy
+of the addressed value or `Nothing`.
+
+The empty pointer addresses the whole document. Object keys match by string.
+An array token must be `0` or a positive integer without a leading zero; the
+`-` end-of-array token, out-of-range indices, indexing a non-container, and
+invalid pointers all yield `Nothing`.
+
+  (JSON.Pointer.get &doc \"/foo/0\")")
+    (defn get [doc pointer]
+      (match (parse pointer)
+        (Maybe.Nothing) (Maybe.Nothing)
+        (Maybe.Just tokens)
+          (Array.reduce
+            &(fn [acc tok]
+              (match acc
+                (Maybe.Nothing) (Maybe.Nothing)
+                (Maybe.Just j) (JSON.Pointer.step &j tok)))
+            (Maybe.Just @doc)
+            &tokens)))))
+
 (doc to-json "converts a Carp value to its JSON representation.")
 (definterface to-json (Fn [a] JSON))
 
