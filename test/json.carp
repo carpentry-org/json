@@ -26,6 +26,19 @@
     (Result.Error e) (Maybe.Just @(JSON.ParseError.kind &e))
     _ (Maybe.Nothing)))
 
+(def rfc-doc
+  (JSON.obj
+    [(JSON.entry @"foo"
+                 (JSON.Arr
+                   [(Box.init (JSON.Str @"bar")) (Box.init (JSON.Str @"baz"))]))
+     (JSON.entry @"" (JSON.Num 0.0))
+     (JSON.entry @"a/b" (JSON.Num 1.0))
+     (JSON.entry @"c%d" (JSON.Num 2.0))
+     (JSON.entry @"e^f" (JSON.Num 3.0))
+     (JSON.entry @"g|h" (JSON.Num 4.0))
+     (JSON.entry @" " (JSON.Num 7.0))
+     (JSON.entry @"m~n" (JSON.Num 8.0))]))
+
 (deftest test
   (assert-equal test "null" &(roundtrip "null") "parse null")
 
@@ -1144,4 +1157,218 @@ break")) "str string with newline")
       (match (JSON.get-in &updated &[@"0"])
         (Maybe.Just v) (= &(ser &v) "15")
         _ false))
-    "update-in works with array indices"))
+    "update-in works with array indices")
+
+  (assert-equal test
+    "a/b"
+    &(JSON.Pointer.unescape "a~1b")
+    "Pointer.unescape decodes ~1 into /")
+
+  (assert-equal test
+    "m~n"
+    &(JSON.Pointer.unescape "m~0n")
+    "Pointer.unescape decodes ~0 into ~")
+
+  (assert-equal test
+    "~1"
+    &(JSON.Pointer.unescape "~01")
+    "Pointer.unescape resolves ~0 before the following digit")
+
+  (assert-equal test
+    "/0"
+    &(JSON.Pointer.unescape "~10")
+    "Pointer.unescape resolves ~1 before the following digit")
+
+  (assert-equal test
+    "foo"
+    &(JSON.Pointer.unescape "foo")
+    "Pointer.unescape leaves a plain token unchanged")
+
+  (assert-equal test
+    ""
+    &(JSON.Pointer.unescape "")
+    "Pointer.unescape of the empty token is empty")
+
+  (assert-equal test
+    "a~1b"
+    &(JSON.Pointer.escape "a/b")
+    "Pointer.escape encodes / as ~1")
+
+  (assert-equal test
+    "m~0n"
+    &(JSON.Pointer.escape "m~n")
+    "Pointer.escape encodes ~ as ~0")
+
+  (assert-equal test
+    "~0~1"
+    &(JSON.Pointer.escape "~/")
+    "Pointer.escape encodes ~ before /")
+
+  (assert-equal test
+    "plain"
+    &(JSON.Pointer.escape "plain")
+    "Pointer.escape leaves a plain token unchanged")
+
+  (assert-equal test
+    "a/b~x/"
+    &(JSON.Pointer.unescape &(JSON.Pointer.escape "a/b~x/"))
+    "Pointer escape/unescape round-trips")
+
+  (assert-true test
+    (match (JSON.Pointer.parse "")
+      (Maybe.Just toks) (= (Array.length &toks) 0)
+      _ false)
+    "Pointer.parse of the empty pointer yields no tokens")
+
+  (assert-true test
+    (match (JSON.Pointer.parse "/foo/0/bar")
+      (Maybe.Just toks)
+        (and (= (Array.length &toks) 3)
+             (and (= (Array.unsafe-nth &toks 0) "foo")
+                  (and (= (Array.unsafe-nth &toks 1) "0")
+                       (= (Array.unsafe-nth &toks 2) "bar"))))
+      _ false)
+    "Pointer.parse splits a pointer into reference tokens")
+
+  (assert-true test
+    (match (JSON.Pointer.parse "/a~1b")
+      (Maybe.Just toks) (= (Array.unsafe-nth &toks 0) "a/b")
+      _ false)
+    "Pointer.parse decodes escapes in tokens")
+
+  (assert-true test
+    (match (JSON.Pointer.parse "/")
+      (Maybe.Just toks)
+        (and (= (Array.length &toks) 1) (= (Array.unsafe-nth &toks 0) ""))
+      _ false)
+    "Pointer.parse of / yields a single empty token")
+
+  (assert-true test
+    (match (JSON.Pointer.parse "//")
+      (Maybe.Just toks) (= (Array.length &toks) 2)
+      _ false)
+    "Pointer.parse of // yields two empty tokens")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.Pointer.parse "foo"))
+    "Pointer.parse rejects a pointer without a leading /")
+
+  (assert-true test
+    (match (JSON.Pointer.get &rfc-doc "")
+      (Maybe.Just v) (= &(ser &v) &(ser &rfc-doc))
+      _ false)
+    "Pointer.get with the empty pointer returns the whole document")
+
+  (assert-true test
+    (match (JSON.Pointer.get &rfc-doc "/foo")
+      (Maybe.Just v) (= &(ser &v) "[\"bar\",\"baz\"]")
+      _ false)
+    "Pointer.get resolves an object key to an array")
+
+  (assert-true test
+    (match (JSON.Pointer.get &rfc-doc "/foo/0")
+      (Maybe.Just v) (= &(ser &v) "\"bar\"")
+      _ false)
+    "Pointer.get indexes into an array")
+
+  (assert-true test
+    (match (JSON.Pointer.get &rfc-doc "/foo/1")
+      (Maybe.Just v) (= &(ser &v) "\"baz\"")
+      _ false)
+    "Pointer.get indexes the second array element")
+
+  (assert-true test
+    (match (JSON.Pointer.get &rfc-doc "/")
+      (Maybe.Just v) (= &(ser &v) "0")
+      _ false)
+    "Pointer.get resolves the empty-string key")
+
+  (assert-true test
+    (match (JSON.Pointer.get &rfc-doc "/a~1b")
+      (Maybe.Just v) (= &(ser &v) "1")
+      _ false)
+    "Pointer.get resolves a key containing /")
+
+  (assert-true test
+    (match (JSON.Pointer.get &rfc-doc "/c%d")
+      (Maybe.Just v) (= &(ser &v) "2")
+      _ false)
+    "Pointer.get resolves a key containing %")
+
+  (assert-true test
+    (match (JSON.Pointer.get &rfc-doc "/e^f")
+      (Maybe.Just v) (= &(ser &v) "3")
+      _ false)
+    "Pointer.get resolves a key containing ^")
+
+  (assert-true test
+    (match (JSON.Pointer.get &rfc-doc "/g|h")
+      (Maybe.Just v) (= &(ser &v) "4")
+      _ false)
+    "Pointer.get resolves a key containing |")
+
+  (assert-true test
+    (match (JSON.Pointer.get &rfc-doc "/ ")
+      (Maybe.Just v) (= &(ser &v) "7")
+      _ false)
+    "Pointer.get resolves a key that is a single space")
+
+  (assert-true test
+    (match (JSON.Pointer.get &rfc-doc "/m~0n")
+      (Maybe.Just v) (= &(ser &v) "8")
+      _ false)
+    "Pointer.get resolves a key containing ~")
+
+  (assert-true test
+    (let [big (JSON.Arr
+            (Array.copy-map
+              &(fn [n] (Box.init (JSON.Num (Double.from-int @n))))
+              &[0 1 2 3 4 5 6 7 8 9 10]))]
+      (match (JSON.Pointer.get &big "/10")
+        (Maybe.Just v) (= &(ser &v) "10")
+        _ false))
+    "Pointer.get accepts a multi-digit array index")
+
+  (assert-true test
+    (let [big (JSON.Arr
+            (Array.copy-map
+              &(fn [n] (Box.init (JSON.Num (Double.from-int @n))))
+              &[0 1 2 3 4 5 6 7 8 9 10]))]
+      (Maybe.nothing? &(JSON.Pointer.get &big "/01")))
+    "Pointer.get rejects a leading-zero index even when it is in range")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.Pointer.get &rfc-doc "/foo/2"))
+    "Pointer.get returns Nothing for an out-of-range index")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.Pointer.get &rfc-doc "/foo/-"))
+    "Pointer.get returns Nothing for the - end-of-array token")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.Pointer.get &rfc-doc "/foo/+1"))
+    "Pointer.get rejects a + sign in an array index")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.Pointer.get &rfc-doc "/foo/-1"))
+    "Pointer.get rejects a negative array index")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.Pointer.get &rfc-doc "/foo/1.0"))
+    "Pointer.get rejects a non-integer array index")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.Pointer.get &rfc-doc "/foo/x"))
+    "Pointer.get returns Nothing for a non-numeric token on an array")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.Pointer.get &rfc-doc "/foo/0/x"))
+    "Pointer.get returns Nothing when indexing into a non-container")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.Pointer.get &rfc-doc "/nope"))
+    "Pointer.get returns Nothing for a missing key")
+
+  (assert-true test
+    (Maybe.nothing? &(JSON.Pointer.get &rfc-doc "foo"))
+    "Pointer.get returns Nothing for an invalid pointer"))
