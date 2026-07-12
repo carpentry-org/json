@@ -936,6 +936,40 @@ break")) "str string with newline")
     "pretty-str output parses back to equivalent structure")
 
   (assert-equal test
+    "[{},1]"
+    &(ser
+      &(JSON.Arr
+        [(Box.init (JSON.Obj (the (Map String (Box JSON)) {})))
+         (Box.init (JSON.Num 1.0))]))
+    "compact array keeps its separator after an empty-object element")
+
+  (assert-equal test "[
+  {},
+  1
+]" &(pretty
+      &(JSON.Arr
+        [(Box.init (JSON.Obj (the (Map String (Box JSON)) {})))
+         (Box.init (JSON.Num 1.0))])
+      2) "pretty-str array with an empty-object element")
+
+  (assert-equal test
+    "{\"k\":{\"k\":{\"k\":{\"k\":1}}}}"
+    &(roundtrip "{\"k\":{\"k\":{\"k\":{\"k\":1}}}}")
+    "deeply nested single-key object round-trips exactly")
+
+  (assert-true test
+    (match (JSON.parse "{\"a\":{},\"b\":[],\"c\":{\"d\":1,\"e\":{}},\"f\":2}")
+      (Result.Success j)
+        (match (JSON.str &j)
+          (Result.Success s)
+            (match (JSON.parse &s)
+              (Result.Success j2) (= &(ser &j) &(ser &j2))
+              _ false)
+          _ false)
+      _ false)
+    "serializing a doc with empty and nested containers round-trips")
+
+  (assert-equal test
     "{\"a\":1,\"b\":2}"
     &(ser
       &(JSON.set-key
