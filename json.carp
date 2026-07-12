@@ -90,11 +90,8 @@ neither of which is representable in JSON.")
 (def *serialize-error* (the (Maybe JSON.SerializeError) (Maybe.Nothing)))
 (def *json-indent-width* 0)
 (def *json-pretty-depth* 0)
-
-(defn json-make-indent [n]
-  (let-do [bytes (the (Array Byte) [])]
-    (for [i 0 n] (Array.push-back! &bytes 32b))
-    (String.from-bytes &bytes)))
+(def *serialize-buf* (the (Array Byte) []))
+(def *emit-sep* false)
 
 (defn json-set-err! [kind]
   (set! *parse-error* (Maybe.Just (JSON.ParseError.init json-idx kind))))
@@ -470,129 +467,135 @@ message.")
   (hidden hex-table)
   (def hex-table [\0 \1 \2 \3 \4 \5 \6 \7 \8 \9 \a \b \c \d \e \f])
 
-  (private escape-json-str)
-  (hidden escape-json-str)
-  (defn escape-json-str [s]
-    (let-do [out (the (Array Byte) [])
-             sb (String.to-bytes s)]
-      (for [i 0 (Array.length &sb)]
+  (private serialize-buf-push!)
+  (hidden serialize-buf-push!)
+  (defn serialize-buf-push! [b] (Array.push-back! &*serialize-buf* b))
+
+  (private serialize-buf-str!)
+  (hidden serialize-buf-str!)
+  (defn serialize-buf-str! [s]
+    (let-do [bs (String.to-bytes s)
+             n (Array.length &bs)]
+      (for [i 0 n] (Array.push-back! &*serialize-buf* @(Array.unsafe-nth &bs i)))))
+
+  (private serialize-buf-indent!)
+  (hidden serialize-buf-indent!)
+  (defn serialize-buf-indent! [n]
+    (for [i 0 n] (Array.push-back! &*serialize-buf* 32b)))
+
+  (private escape-into!)
+  (hidden escape-into!)
+  (defn escape-into! [s]
+    (let-do [sb (String.to-bytes s)
+             len (Array.length &sb)]
+      (for [i 0 len]
         (let [b @(Array.unsafe-nth &sb i)
               cp (Byte.to-int b)]
           (cond
-            (= cp 92)
-              (do (Array.push-back! &out 92b) (Array.push-back! &out 92b))
-            (= cp 34)
-              (do (Array.push-back! &out 92b) (Array.push-back! &out 34b))
-            (= cp 10)
-              (do (Array.push-back! &out 92b) (Array.push-back! &out 110b))
-            (= cp 13)
-              (do (Array.push-back! &out 92b) (Array.push-back! &out 114b))
-            (= cp 9)
-              (do (Array.push-back! &out 92b) (Array.push-back! &out 116b))
-            (= cp 8)
-              (do (Array.push-back! &out 92b) (Array.push-back! &out 98b))
-            (= cp 12)
-              (do (Array.push-back! &out 92b) (Array.push-back! &out 102b))
+            (= cp 92) (do (serialize-buf-push! 92b) (serialize-buf-push! 92b))
+            (= cp 34) (do (serialize-buf-push! 92b) (serialize-buf-push! 34b))
+            (= cp 10) (do (serialize-buf-push! 92b) (serialize-buf-push! 110b))
+            (= cp 13) (do (serialize-buf-push! 92b) (serialize-buf-push! 114b))
+            (= cp 9) (do (serialize-buf-push! 92b) (serialize-buf-push! 116b))
+            (= cp 8) (do (serialize-buf-push! 92b) (serialize-buf-push! 98b))
+            (= cp 12) (do (serialize-buf-push! 92b) (serialize-buf-push! 102b))
             (< cp 32)
               (do
-                (Array.push-back! &out 92b)
-                (Array.push-back! &out 117b)
-                (Array.push-back! &out 48b)
-                (Array.push-back! &out 48b)
-                (Array.push-back! &out
-                                  (Char.to-byte
-                                    @(Array.unsafe-nth &hex-table
-                                                       (Int.bit-shift-right cp 4))))
-                (Array.push-back! &out
-                                  (Char.to-byte
-                                    @(Array.unsafe-nth &hex-table
-                                                       (Int.bit-and cp 15)))))
-            (Array.push-back! &out b))))
-      (String.from-bytes &out)))
+                (serialize-buf-push! 92b)
+                (serialize-buf-push! 117b)
+                (serialize-buf-push! 48b)
+                (serialize-buf-push! 48b)
+                (serialize-buf-push!
+                  (Char.to-byte
+                    @(Array.unsafe-nth &hex-table (Int.bit-shift-right cp 4))))
+                (serialize-buf-push!
+                  (Char.to-byte
+                    @(Array.unsafe-nth &hex-table (Int.bit-and cp 15)))))
+            (serialize-buf-push! b))))))
 
-  (private serialize-internal)
-  (hidden serialize-internal)
-  ; Forward declaration is required so the recursive calls inside the
-  ; lambdas passed to Array.copy-map / Map.kv-reduce below resolve to the
-  ; in-progress definition.  Without it, the file builds but segfaults
-  ; when serializing arrays or objects.
+  (private serialize-into!)
+  (hidden serialize-into!)
+  (private serialize-obj-into!)
+  (hidden serialize-obj-into!)
+  ; serialize-into! appends the serialization of `j` to the shared
+  ; *serialize-buf* byte buffer, so a whole document is produced in a single
+  ; pass (O(output)) rather than rebuilding and re-joining a String at every
+  ; node. When *json-indent-width* > 0 the output is pretty-printed (newlines
+  ; and indentation); when it is 0 the output is compact.
   ;
-  ; When *json-indent-width* > 0 the output is pretty-printed (with
-  ; newlines and indentation); when it is 0 the output is compact.
-  (register serialize-internal (Fn [(Ref JSON)] String))
-  (defn serialize-internal [j]
+  ; The object case lives in serialize-obj-into!, which is forward declared
+  ; here: a recursive call reached through a closure (the Map.for-each body)
+  ; segfaults, but a direct call resolves fine — so serialize-into! calls
+  ; serialize-obj-into! directly and that closure only calls the
+  ; already-defined serialize-into!.
+  (register serialize-obj-into! (Fn [(Ref (Map String (Box JSON)))] ()))
+  (defn serialize-into! [j]
     (match-ref j
-      (JSON.Null) @"null"
-      (JSON.Bool b) (if @b @"true" @"false")
+      (JSON.Null) (serialize-buf-str! "null")
+      (JSON.Bool b) (serialize-buf-str! (if @b "true" "false"))
       (JSON.Num n)
         (if (or (Double.nan? @n) (Double.inf? @n))
           (do
             (when (Maybe.nothing? &*serialize-error*)
               (set! *serialize-error*
                     (Maybe.Just (JSON.SerializeError.NonFiniteNumber @n))))
-            @"null")
-          (Double.str @n))
-      (JSON.Str s) (fmt "\"%s\"" &(escape-json-str s))
+            (serialize-buf-str! "null"))
+          (serialize-buf-str! &(Double.str @n)))
+      (JSON.Str s)
+        (do (serialize-buf-push! 34b) (escape-into! s) (serialize-buf-push! 34b))
       (JSON.Arr a)
         (if (and (> *json-indent-width* 0) (= 0 (Array.length a)))
-          @"[]"
-          (do
+          (serialize-buf-str! "[]")
+          (let-do [len (Array.length a)]
+            (serialize-buf-push! 91b)
             (when (> *json-indent-width* 0)
               (set! *json-pretty-depth* (Int.inc *json-pretty-depth*)))
-            (let-do [elems (Array.copy-map
-                       &(fn [b]
-                         (let [s (JSON.serialize-internal (Box.peek b))]
-                           (if (> *json-indent-width* 0)
-                             (fmt "%s%s"
-                                  &(json-make-indent
-                                    (* *json-pretty-depth* *json-indent-width*))
-                                  &s)
-                             s)))
-                       a)
-                     result (if (> *json-indent-width* 0)
-                       (let [outer (json-make-indent
-                               (* (Int.dec *json-pretty-depth*)
-                                  *json-indent-width*))]
-                         (fmt "[
-%s
-%s]" &(String.join ",
-" &elems) &outer))
-                       (fmt "[%s]" &(String.join "," &elems)))]
-              (when (> *json-indent-width* 0)
-                (set! *json-pretty-depth* (Int.dec *json-pretty-depth*)))
-              result)))
+            (for [i 0 len]
+              (do
+                (when (> i 0) (serialize-buf-push! 44b))
+                (when-do (> *json-indent-width* 0)
+                  (serialize-buf-push! 10b)
+                  (serialize-buf-indent!
+                    (* *json-pretty-depth* *json-indent-width*)))
+                (serialize-into! (Box.peek (Array.unsafe-nth a i)))))
+            (when-do (> *json-indent-width* 0)
+              (set! *json-pretty-depth* (Int.dec *json-pretty-depth*))
+              (serialize-buf-push! 10b)
+              (serialize-buf-indent! (* *json-pretty-depth* *json-indent-width*)))
+            (serialize-buf-push! 93b)))
       (JSON.Obj m)
         (if (and (> *json-indent-width* 0) (= 0 (Map.length m)))
-          @"{}"
-          (do
-            (when (> *json-indent-width* 0)
-              (set! *json-pretty-depth* (Int.inc *json-pretty-depth*)))
-            (let-do [pairs (Map.kv-reduce
-                       &(fn [acc k v]
-                         (let [vs (JSON.serialize-internal (Box.peek v))]
-                           (if (> *json-indent-width* 0)
-                             (let [ind (json-make-indent
-                                     (* *json-pretty-depth* *json-indent-width*))
-                                   kv (fmt "\"%s\": %s" &(escape-json-str k) &vs)]
-                               (Array.push-back acc (fmt "%s%s" &ind &kv)))
-                             (Array.push-back acc
-                                              (fmt "\"%s\":%s"
-                                                   &(escape-json-str k)
-                                                   &vs)))))
-                       (the (Array String) [])
-                       m)
-                     result (if (> *json-indent-width* 0)
-                       (let [outer (json-make-indent
-                               (* (Int.dec *json-pretty-depth*)
-                                  *json-indent-width*))]
-                         (fmt "{
-%s
-%s}" &(String.join ",
-" &pairs) &outer))
-                       (fmt "{%s}" &(String.join "," &pairs)))]
-              (when (> *json-indent-width* 0)
-                (set! *json-pretty-depth* (Int.dec *json-pretty-depth*)))
-              result)))))
+          (serialize-buf-str! "{}")
+          (serialize-obj-into! m))))
+
+  (defn serialize-obj-into! [m]
+    (let-do [saved *emit-sep*]
+      (serialize-buf-push! 123b)
+      (set! *emit-sep* false)
+      (when (> *json-indent-width* 0)
+        (set! *json-pretty-depth* (Int.inc *json-pretty-depth*)))
+      (Map.for-each m
+                    &(fn [k v]
+                      (do
+                        (when *emit-sep* (serialize-buf-push! 44b))
+                        (when-do (> *json-indent-width* 0)
+                          (serialize-buf-push! 10b)
+                          (serialize-buf-indent!
+                            (* *json-pretty-depth* *json-indent-width*)))
+                        (serialize-buf-push! 34b)
+                        (escape-into! k)
+                        (serialize-buf-push! 34b)
+                        (serialize-buf-push! 58b)
+                        (when (> *json-indent-width* 0)
+                          (serialize-buf-push! 32b))
+                        (serialize-into! (Box.peek v))
+                        (set! *emit-sep* true))))
+      (when-do (> *json-indent-width* 0)
+        (set! *json-pretty-depth* (Int.dec *json-pretty-depth*))
+        (serialize-buf-push! 10b)
+        (serialize-buf-indent! (* *json-pretty-depth* *json-indent-width*)))
+      (serialize-buf-push! 125b)
+      (set! *emit-sep* saved)))
 
   (doc str "serializes a JSON value to its string representation.
 
@@ -605,7 +608,12 @@ Produces compact output with no extra whitespace.")
     (do
       (set! *serialize-error* (the (Maybe JSON.SerializeError) (Maybe.Nothing)))
       (set! *json-indent-width* 0)
-      (let-do [s (JSON.serialize-internal j)]
+      (set! *json-pretty-depth* 0)
+      (set! *emit-sep* false)
+      (set! *serialize-buf* (the (Array Byte) []))
+      (serialize-into! j)
+      (let-do [s (String.from-bytes &*serialize-buf*)]
+        (set! *serialize-buf* (the (Array Byte) []))
         (match-ref &*serialize-error*
           (Maybe.Just e) (do (ignore s) (Result.Error @e))
           (Maybe.Nothing) (Result.Success s)))))
@@ -620,7 +628,11 @@ a `JSON.Num` contains NaN or infinity.")
       (set! *serialize-error* (the (Maybe JSON.SerializeError) (Maybe.Nothing)))
       (set! *json-indent-width* indent)
       (set! *json-pretty-depth* 0)
-      (let-do [s (JSON.serialize-internal j)]
+      (set! *emit-sep* false)
+      (set! *serialize-buf* (the (Array Byte) []))
+      (serialize-into! j)
+      (let-do [s (String.from-bytes &*serialize-buf*)]
+        (set! *serialize-buf* (the (Array Byte) []))
         (match-ref &*serialize-error*
           (Maybe.Just e) (do (ignore s) (Result.Error @e))
           (Maybe.Nothing) (Result.Success s)))))
