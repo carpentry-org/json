@@ -327,6 +327,45 @@
 
   (assert-equal test "3.14" &(ser &(JSON.Num 3.14)) "str decimal number")
 
+  (assert-equal test
+    "3.141592653589793"
+    &(ser &(JSON.Num 3.1415926535897931))
+    "str keeps full double precision instead of truncating to 6 digits")
+
+  (assert-equal test
+    "3.141592653589793"
+    &(roundtrip "3.141592653589793")
+    "a high-precision number round-trips through parse+str without loss")
+
+  (assert-equal test
+    "0.30000000000000004"
+    &(roundtrip "0.30000000000000004")
+    "str emits every digit needed to round-trip (0.1 + 0.2)")
+
+  (assert-equal test
+    "1234567890"
+    &(ser &(JSON.Num 1234567890.0))
+    "str renders a large whole number in decimal form, not exponent")
+
+  (assert-equal test
+    "10"
+    &(ser &(JSON.Num 10.0))
+    "str renders a round number as decimal, not 1e+01")
+
+  (assert-true test
+    (let [x 602214075999999987023872.0]
+      (match (JSON.parse &(ser &(JSON.Num x)))
+        (Result.Success (JSON.Num d)) (= d x)
+        _ false))
+    "a magnitude that needs exponent notation still round-trips exactly")
+
+  (assert-true test
+    (let [x 0.0000001]
+      (match (JSON.parse &(ser &(JSON.Num x)))
+        (Result.Success (JSON.Num d)) (= d x)
+        _ false))
+    "a tiny magnitude round-trips exactly")
+
   (assert-equal test "\"hello\"" &(ser &(JSON.Str @"hello")) "str simple string")
 
   (assert-equal test
