@@ -513,6 +513,36 @@ message.")
                     @(Array.unsafe-nth &hex-table (Int.bit-and cp 15)))))
             (serialize-buf-push! b))))))
 
+  (private num-round-trips?)
+  (hidden num-round-trips?)
+  (defn num-round-trips? [rendered n]
+    (match (Double.from-string rendered)
+      (Maybe.Just d) (= d n)
+      (Maybe.Nothing) false))
+
+  (private num-str)
+  (hidden num-str)
+  ; the fewest significant digits that parse back to exactly `n`, preferring a
+  ; decimal over an exponent form; a plain `%g` keeps only 6 and silently drops
+  ; the rest.
+  (defn num-str [n]
+    (let-do [decimal (Maybe.Nothing)
+             scientific (Maybe.Nothing)]
+      (for [precision 1 18]
+        (let [candidate (Double.format &(fmt "%%.%dg" precision) n)]
+          (when-do (num-round-trips? &candidate n)
+            (if (String.contains? &candidate \e)
+              (when (Maybe.nothing? &scientific)
+                (set! scientific (Maybe.Just candidate)))
+              (when (Maybe.nothing? &decimal)
+                (set! decimal (Maybe.Just candidate)))))))
+      (match decimal
+        (Maybe.Just d) d
+        (Maybe.Nothing)
+          (match scientific
+            (Maybe.Just s) s
+            (Maybe.Nothing) (Double.format "%.17g" n)))))
+
   (private serialize-into!)
   (hidden serialize-into!)
   (private serialize-obj-into!)
@@ -540,7 +570,7 @@ message.")
               (set! *serialize-error*
                     (Maybe.Just (JSON.SerializeError.NonFiniteNumber @n))))
             (serialize-buf-str! "null"))
-          (serialize-buf-str! &(Double.str @n)))
+          (serialize-buf-str! &(num-str @n)))
       (JSON.Str s)
         (do (serialize-buf-push! 34b) (escape-into! s) (serialize-buf-push! 34b))
       (JSON.Arr a)
