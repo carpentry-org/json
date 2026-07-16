@@ -36,6 +36,11 @@
                                         </a>
                                     </li>
                                     <li>
+                                        <a href="JSON.Pointer.html">
+                                            Pointer
+                                        </a>
+                                    </li>
+                                    <li>
                                         <a href="JSON.SerializeError.html">
                                             SerializeError
                                         </a>
@@ -53,7 +58,7 @@
                 <div class="module-description">
                     <p>is a JSON data type, parser, and serializer for Carp.</p>
 <h2>Installation</h2>
-<pre><code>(load &quot;git@github.com:carpentry-org/json@0.4.0&quot;)
+<pre><code>(load &quot;git@github.com:carpentry-org/json@0.5.0&quot;)
 </code></pre>
 <h2>Usage</h2>
 <pre><code>; Parse JSON
@@ -217,6 +222,29 @@ in the input where the error was detected.</p>
                         <p>describes the cause of a parse failure.</p>
 <p>The associated <code>ParseError</code> carries this together with the byte position
 where the error was detected.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Pointer">
+                        <h3 id="Pointer">
+                            <a href="JSON.Pointer.html">
+                                Pointer
+                            </a>
+                        </h3>
+                    </a>
+                    <div class="description">
+                        module
+                    </div>
+                    <p class="sig">
+                        Module
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>implements RFC 6901 JSON Pointer, addressing a value inside a
+JSON document with a string such as <code>/foo/0/bar</code>.</p>
 
                     </p>
                 </div>
