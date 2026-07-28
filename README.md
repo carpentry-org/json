@@ -75,6 +75,9 @@ in JSON.
 (JSON.as-str &(JSON.Str @"hi"))  ; => (Maybe.Just "hi")
 (JSON.as-num &(JSON.Num 3.14))   ; => (Maybe.Just 3.14)
 (JSON.as-bool &(JSON.Bool true))  ; => (Maybe.Just true)
+
+; Compare structurally: arrays by order, objects independent of member order
+(= &(JSON.Num 1.0) &(JSON.Num 1.0))  ; => true
 ```
 
 ### JSON Pointer
@@ -97,6 +100,33 @@ Array tokens must be `0` or a positive integer without a leading zero; the
 (JSON.Pointer.escape "a/b")     ; => "a~1b"
 (JSON.Pointer.unescape "m~0n")  ; => "m~n"
 ```
+
+### JSON Patch
+
+`JSON.Patch` implements [RFC 6902](https://www.rfc-editor.org/rfc/rfc6902),
+which expresses a change to a document as a JSON array of operation objects
+addressed by JSON Pointer:
+
+```clojure
+(def patch
+  (Result.unsafe-from-success
+    (JSON.parse "[{\"op\": \"add\", \"path\": \"/tags/-\", \"value\": \"lisp\"},
+                  {\"op\": \"replace\", \"path\": \"/version\", \"value\": 2},
+                  {\"op\": \"move\", \"from\": \"/old\", \"path\": \"/new\"}]")))
+
+(match (JSON.Patch.apply &doc &patch)
+  (Result.Success patched) (println* &patched)
+  (Result.Error e) (IO.errorln &(JSON.patch-error-str &e)))
+```
+
+All six operations are supported. `add` inserts into an array (shifting the
+rest right, with `-` appending) and inserts or replaces an object member;
+`remove` and `replace` require the location to exist; `move` may not move a
+location into one of its own children; `test` compares the addressed value
+with `JSON.=`. The empty pointer `""` addresses the whole document.
+
+Patches are atomic: if any operation fails, the returned `PatchError` names
+the index of the failing operation and the input document is left untouched.
 
 ### Type predicates
 

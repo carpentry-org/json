@@ -835,7 +835,57 @@ If the path does not resolve to a value, returns the input unchanged.
   (defn update-in [j keys f]
     (match (JSON.get-in &j keys)
       (Maybe.Just old) (JSON.set-in j keys (f old))
-      (Maybe.Nothing) (do (ignore f) j))))
+      (Maybe.Nothing) (do (ignore f) j)))
+
+  (private eq?)
+  (hidden eq?)
+  (register eq? (Fn [(Ref JSON) (Ref JSON)] Bool))
+  (defn eq? [a b]
+    (match-ref a
+      (JSON.Null) (JSON.null? b)
+      (JSON.Bool x) (match-ref b (JSON.Bool y) (Bool.= @x @y) _ false)
+      (JSON.Num x) (match-ref b (JSON.Num y) (Double.= @x @y) _ false)
+      (JSON.Str x) (match-ref b (JSON.Str y) (String.= x y) _ false)
+      (JSON.Arr x)
+        (match-ref b
+          (JSON.Arr y)
+            (and
+              (Int.= (Array.length x) (Array.length y))
+              (let-do [ok true]
+                (for [i 0 (Array.length x)]
+                  (unless (JSON.eq? (Box.peek (Array.unsafe-nth x i))
+                                    (Box.peek (Array.unsafe-nth y i)))
+                    (set! ok false)))
+                ok))
+          _ false)
+      (JSON.Obj x)
+        (match-ref b
+          (JSON.Obj y)
+            (and (Int.= (Map.length x) (Map.length y))
+                 (let-do [ks (Map.keys x)
+                          vs (Map.vals x)
+                          ok true]
+                   (for [i 0 (Array.length &ks)]
+                     (match (Map.get-maybe y (Array.unsafe-nth &ks i))
+                       (Maybe.Nothing) (set! ok false)
+                       (Maybe.Just yv)
+                         (unless (JSON.eq? (Box.peek (Array.unsafe-nth &vs i))
+                                           (Box.peek &yv))
+                           (set! ok false))))
+                   ok))
+          _ false)))
+
+  (doc = "compares two JSON values structurally.
+
+Arrays are equal when they have the same length and equal elements in the
+same order. Objects are equal when they have the same set of keys with equal
+values, independent of member order.
+
+`Num` holds a `Double`, so `1` and `1.0` are the same JSON value: a `test`
+patch operation on `1` matches a document containing `1.0`. RFC 6902 s4.6
+compares numbers by value, so this is the intended reading.")
+  (defn = [a b] (JSON.eq? a b))
+  (implements = JSON.=))
 
 (defmodule JSON
   (doc Pointer "implements RFC 6901 JSON Pointer, addressing a value inside a
@@ -858,8 +908,11 @@ JSON document with a string such as `/foo/0/bar`.")
           (= n 1) (Char.num? (String.head s))
           (and (/= (String.head s) \0) (all-digits? s)))))
 
-    (private array-index)
-    (hidden array-index)
+    (doc array-index "parses a reference token as an array index.
+
+Returns `Nothing` unless the token is `0` or a positive integer without a
+leading zero, per RFC 6901. The end-of-array token `-` is not an index and
+also yields `Nothing`.")
     (defn array-index [s] (if (index? s) (Int.from-string s) (Maybe.Nothing)))
 
     (doc unescape "decodes a single reference token, turning `~1` back into `/`
@@ -944,6 +997,388 @@ invalid pointers all yield `Nothing`.
                 (Maybe.Just j) (JSON.Pointer.step &j tok)))
             (Maybe.Just @doc)
             &tokens)))))
+
+(defmodule JSON
+  (doc PatchErrorKind "describes why a patch could not be applied.
+
+The associated `PatchError` carries this together with the index of the
+operation that failed.")
+  (deftype PatchErrorKind
+    (NotAnArray [])
+    (NotAnObject [])
+    (MissingMember [String])
+    (NotAString [String])
+    (UnknownOp [String])
+    (InvalidPointer [String])
+    (NoSuchLocation [String])
+    (InvalidArrayIndex [String])
+    (IndexOutOfRange [String])
+    (CannotRemoveRoot [])
+    (MoveIntoOwnChild [])
+    (TestFailed []))
+
+  (doc PatchError "wraps a `PatchErrorKind` together with the index of the
+operation that failed, or `-1` when the patch document itself is not an
+array.")
+  (deftype PatchError [index Int
+                       kind JSON.PatchErrorKind])
+
+  (doc patch-error-kind-str "formats a `PatchErrorKind` as a human-readable
+message, without the operation index.")
+  (defn patch-error-kind-str [k]
+    (match-ref k
+      (JSON.PatchErrorKind.NotAnArray) @"patch is not an array"
+      (JSON.PatchErrorKind.NotAnObject) @"operation is not an object"
+      (JSON.PatchErrorKind.MissingMember n) (fmt "operation is missing '%s'" n)
+      (JSON.PatchErrorKind.NotAString n) (fmt "'%s' is not a string" n)
+      (JSON.PatchErrorKind.UnknownOp o) (fmt "unknown op '%s'" o)
+      (JSON.PatchErrorKind.InvalidPointer p) (fmt "invalid pointer '%s'" p)
+      (JSON.PatchErrorKind.NoSuchLocation p)
+        (fmt "location '%s' does not exist" p)
+      (JSON.PatchErrorKind.InvalidArrayIndex t)
+        (fmt "invalid array index '%s'" t)
+      (JSON.PatchErrorKind.IndexOutOfRange t)
+        (fmt "array index '%s' out of range" t)
+      (JSON.PatchErrorKind.CannotRemoveRoot) @"cannot remove the whole document"
+      (JSON.PatchErrorKind.MoveIntoOwnChild)
+        @"cannot move a location into its own child"
+      (JSON.PatchErrorKind.TestFailed) @"test failed"))
+
+  (doc patch-error-str "formats a `PatchError` as a human-readable message
+including the index of the operation that failed.")
+  (defn patch-error-str [e]
+    (fmt "%s at operation %d"
+         &(JSON.patch-error-kind-str (JSON.PatchError.kind e))
+         @(JSON.PatchError.index e)))
+
+  (doc Patch "implements RFC 6902 JSON Patch, a JSON array of operation
+objects describing a sequence of changes to a document.")
+  (defmodule Patch
+    (private Edit)
+    (hidden Edit)
+    (deftype Edit
+      (Add [JSON])
+      (Remove [])
+      (Replace [JSON]))
+
+    (private str-member)
+    (hidden str-member)
+    (defn str-member [m k]
+      (match (Map.get-maybe m k)
+        (Maybe.Nothing) (Result.Error (JSON.PatchErrorKind.MissingMember @k))
+        (Maybe.Just bx)
+          (match (Box.unbox bx)
+            (JSON.Str s) (Result.Success s)
+            other
+              (do
+                (ignore other)
+                (Result.Error (JSON.PatchErrorKind.NotAString @k))))))
+
+    (private value-member)
+    (hidden value-member)
+    (defn value-member [m]
+      (match (Map.get-maybe m "value")
+        (Maybe.Nothing)
+          (Result.Error (JSON.PatchErrorKind.MissingMember @"value"))
+        (Maybe.Just bx) (Result.Success (Box.unbox bx))))
+
+    (private insert-boxed)
+    (hidden insert-boxed)
+    (defn insert-boxed [a i x]
+      (let-do [n (Array.length &a)
+               out (Array.push-back (Array.prefix &a i) x)]
+        (for [j i n] (set! out (Array.push-back out @(Array.unsafe-nth &a j))))
+        out))
+
+    (private edit-obj)
+    (hidden edit-obj)
+    (defn edit-obj [m tok e p]
+      (match e
+        (Edit.Add v)
+          (let [bv (Box.init v)] (Result.Success (JSON.Obj (Map.put m tok &bv))))
+        (Edit.Replace v)
+          (if (Map.contains? &m tok)
+            (let [bv (Box.init v)]
+              (Result.Success (JSON.Obj (Map.put m tok &bv))))
+            (do
+              (ignore m)
+              (ignore v)
+              (Result.Error (JSON.PatchErrorKind.NoSuchLocation @p))))
+        (Edit.Remove)
+          (if (Map.contains? &m tok)
+            (Result.Success (JSON.Obj (Map.remove m tok)))
+            (do
+              (ignore m)
+              (Result.Error (JSON.PatchErrorKind.NoSuchLocation @p))))))
+
+    (private edit-arr)
+    (hidden edit-arr)
+    (defn edit-arr [a tok e]
+      (let [n (Array.length &a)]
+        (match e
+          (Edit.Add v)
+            (if (String.= tok "-")
+              (Result.Success (JSON.Arr (Array.push-back a (Box.init v))))
+              (match (JSON.Pointer.array-index tok)
+                (Maybe.Nothing)
+                  (do
+                    (ignore a)
+                    (ignore v)
+                    (Result.Error (JSON.PatchErrorKind.InvalidArrayIndex @tok)))
+                (Maybe.Just i)
+                  (if (Int.<= i n)
+                    (Result.Success
+                      (JSON.Arr (JSON.Patch.insert-boxed a i (Box.init v))))
+                    (do
+                      (ignore a)
+                      (ignore v)
+                      (Result.Error (JSON.PatchErrorKind.IndexOutOfRange @tok))))))
+          (Edit.Replace v)
+            (match (JSON.Pointer.array-index tok)
+              (Maybe.Nothing)
+                (do
+                  (ignore a)
+                  (ignore v)
+                  (Result.Error (JSON.PatchErrorKind.InvalidArrayIndex @tok)))
+              (Maybe.Just i)
+                (if (Int.< i n)
+                  (Result.Success (JSON.Arr (Array.aset a i (Box.init v))))
+                  (do
+                    (ignore a)
+                    (ignore v)
+                    (Result.Error (JSON.PatchErrorKind.IndexOutOfRange @tok)))))
+          (Edit.Remove)
+            (match (JSON.Pointer.array-index tok)
+              (Maybe.Nothing)
+                (do
+                  (ignore a)
+                  (Result.Error (JSON.PatchErrorKind.InvalidArrayIndex @tok)))
+              (Maybe.Just i)
+                (if (Int.< i n)
+                  (Result.Success (JSON.Arr (Array.remove-nth i a)))
+                  (do
+                    (ignore a)
+                    (Result.Error (JSON.PatchErrorKind.IndexOutOfRange @tok))))))))
+
+    (private edit-at)
+    (hidden edit-at)
+    (register edit-at
+      (Fn
+        [JSON (Ref (Array String)) Int JSON.Patch.Edit (Ref String)]
+        (Result JSON JSON.PatchErrorKind)))
+    (defn edit-at [j tokens idx e p]
+      (let [tok (Array.unsafe-nth tokens idx)
+            leaf? (Int.= (Int.inc idx) (Array.length tokens))]
+        (match j
+          (JSON.Obj m)
+            (if leaf?
+              (JSON.Patch.edit-obj m tok e p)
+              (match (Map.get-maybe &m tok)
+                (Maybe.Nothing)
+                  (do
+                    (ignore m)
+                    (ignore e)
+                    (Result.Error (JSON.PatchErrorKind.NoSuchLocation @p)))
+                (Maybe.Just bx)
+                  (match (JSON.Patch.edit-at (Box.unbox bx)
+                                             tokens
+                                             (Int.inc idx)
+                                             e
+                                             p)
+                    (Result.Error err) (do (ignore m) (Result.Error err))
+                    (Result.Success child)
+                      (let [bv (Box.init child)]
+                        (Result.Success (JSON.Obj (Map.put m tok &bv)))))))
+          (JSON.Arr a)
+            (if leaf?
+              (JSON.Patch.edit-arr a tok e)
+              (match (JSON.Pointer.array-index tok)
+                (Maybe.Nothing)
+                  (do
+                    (ignore a)
+                    (ignore e)
+                    (Result.Error (JSON.PatchErrorKind.InvalidArrayIndex @tok)))
+                (Maybe.Just i)
+                  (if (Int.< i (Array.length &a))
+                    (let [old (Box.unbox @(Array.unsafe-nth &a i))]
+                      (match (JSON.Patch.edit-at old tokens (Int.inc idx) e p)
+                        (Result.Error err) (do (ignore a) (Result.Error err))
+                        (Result.Success child)
+                          (Result.Success
+                            (JSON.Arr (Array.aset a i (Box.init child))))))
+                    (do
+                      (ignore a)
+                      (ignore e)
+                      (Result.Error (JSON.PatchErrorKind.IndexOutOfRange @tok))))))
+          other
+            (do
+              (ignore other)
+              (ignore e)
+              (Result.Error (JSON.PatchErrorKind.NoSuchLocation @p))))))
+
+    (private edit)
+    (hidden edit)
+    (defn edit [doc p e]
+      (match (JSON.Pointer.parse p)
+        (Maybe.Nothing)
+          (do
+            (ignore doc)
+            (ignore e)
+            (Result.Error (JSON.PatchErrorKind.InvalidPointer @p)))
+        (Maybe.Just tokens)
+          (if (Array.empty? &tokens)
+            (match e
+              (Edit.Add v) (do (ignore doc) (Result.Success v))
+              (Edit.Replace v) (do (ignore doc) (Result.Success v))
+              (Edit.Remove)
+                (do
+                  (ignore doc)
+                  (Result.Error (JSON.PatchErrorKind.CannotRemoveRoot))))
+            (JSON.Patch.edit-at doc &tokens 0 e p))))
+
+    (private proper-prefix?)
+    (hidden proper-prefix?)
+    (defn proper-prefix? [a b]
+      (and
+        (Int.< (Array.length a) (Array.length b))
+        (let-do [ok true]
+          (for [i 0 (Array.length a)]
+            (unless (String.= (Array.unsafe-nth a i) (Array.unsafe-nth b i))
+              (set! ok false)))
+          ok)))
+
+    (private apply-move)
+    (hidden apply-move)
+    (defn apply-move [doc m path]
+      (match (JSON.Patch.str-member m "from")
+        (Result.Error e) (do (ignore doc) (Result.Error e))
+        (Result.Success from)
+          (match (JSON.Pointer.parse &from)
+            (Maybe.Nothing)
+              (do
+                (ignore doc)
+                (Result.Error (JSON.PatchErrorKind.InvalidPointer @&from)))
+            (Maybe.Just ftoks)
+              (match (JSON.Pointer.parse path)
+                (Maybe.Nothing)
+                  (do
+                    (ignore doc)
+                    (Result.Error (JSON.PatchErrorKind.InvalidPointer @path)))
+                (Maybe.Just ptoks)
+                  (if (JSON.Patch.proper-prefix? &ftoks &ptoks)
+                    (do
+                      (ignore doc)
+                      (Result.Error (JSON.PatchErrorKind.MoveIntoOwnChild)))
+                    (match (JSON.Pointer.get &doc &from)
+                      (Maybe.Nothing)
+                        (do
+                          (ignore doc)
+                          (Result.Error
+                            (JSON.PatchErrorKind.NoSuchLocation @&from)))
+                      (Maybe.Just v)
+                        (match (JSON.Patch.edit doc &from (Edit.Remove))
+                          (Result.Error e) (do (ignore v) (Result.Error e))
+                          (Result.Success d)
+                            (JSON.Patch.edit d path (Edit.Add v)))))))))
+
+    (private apply-copy)
+    (hidden apply-copy)
+    (defn apply-copy [doc m path]
+      (match (JSON.Patch.str-member m "from")
+        (Result.Error e) (do (ignore doc) (Result.Error e))
+        (Result.Success from)
+          (match (JSON.Pointer.get &doc &from)
+            (Maybe.Nothing)
+              (do
+                (ignore doc)
+                (Result.Error (JSON.PatchErrorKind.NoSuchLocation @&from)))
+            (Maybe.Just v) (JSON.Patch.edit doc path (Edit.Add v)))))
+
+    (private apply-test)
+    (hidden apply-test)
+    (defn apply-test [doc m path]
+      (match (JSON.Patch.value-member m)
+        (Result.Error e) (do (ignore doc) (Result.Error e))
+        (Result.Success v)
+          (match (JSON.Pointer.get &doc path)
+            (Maybe.Nothing)
+              (do
+                (ignore doc)
+                (ignore v)
+                (Result.Error (JSON.PatchErrorKind.NoSuchLocation @path)))
+            (Maybe.Just found)
+              (if (JSON.= &found &v)
+                (Result.Success doc)
+                (do (ignore doc) (Result.Error (JSON.PatchErrorKind.TestFailed)))))))
+
+    (private apply-valued)
+    (hidden apply-valued)
+    (defn apply-valued [doc m path add?]
+      (match (JSON.Patch.value-member m)
+        (Result.Error e) (do (ignore doc) (Result.Error e))
+        (Result.Success v)
+          (JSON.Patch.edit doc path (if add? (Edit.Add v) (Edit.Replace v)))))
+
+    (private apply-obj-op)
+    (hidden apply-obj-op)
+    (defn apply-obj-op [doc m]
+      (match (JSON.Patch.str-member m "op")
+        (Result.Error e) (do (ignore doc) (Result.Error e))
+        (Result.Success name)
+          (match (JSON.Patch.str-member m "path")
+            (Result.Error e) (do (ignore doc) (Result.Error e))
+            (Result.Success path)
+              (cond
+                (String.= &name "add")
+                  (JSON.Patch.apply-valued doc m &path true)
+                (String.= &name "replace")
+                  (JSON.Patch.apply-valued doc m &path false)
+                (String.= &name "remove")
+                  (JSON.Patch.edit doc &path (Edit.Remove))
+                (String.= &name "test") (JSON.Patch.apply-test doc m &path)
+                (String.= &name "move") (JSON.Patch.apply-move doc m &path)
+                (String.= &name "copy") (JSON.Patch.apply-copy doc m &path)
+                (do
+                  (ignore doc)
+                  (Result.Error (JSON.PatchErrorKind.UnknownOp @&name)))))))
+
+    (private apply-op)
+    (hidden apply-op)
+    (defn apply-op [doc op]
+      (match-ref op
+        (JSON.Obj m) (JSON.Patch.apply-obj-op doc m)
+        _ (do (ignore doc) (Result.Error (JSON.PatchErrorKind.NotAnObject)))))
+
+    (private apply-from)
+    (hidden apply-from)
+    (register apply-from
+      (Fn [JSON (Ref (Array (Box JSON))) Int] (Result JSON JSON.PatchError)))
+    (defn apply-from [doc ops i]
+      (if (Int.>= i (Array.length ops))
+        (Result.Success doc)
+        (match (JSON.Patch.apply-op doc (Box.peek (Array.unsafe-nth ops i)))
+          (Result.Error k) (Result.Error (JSON.PatchError.init i k))
+          (Result.Success next) (JSON.Patch.apply-from next ops (Int.inc i)))))
+
+    (doc apply "applies an RFC 6902 JSON Patch to `doc`, returning the patched
+document.
+
+`patch` must be a JSON array of operation objects, each with a string `op` of
+`add`, `remove`, `replace`, `move`, `copy` or `test`, a string `path` holding
+an RFC 6901 pointer, and the members that operation requires. Unrecognized
+members are ignored.
+
+Operations are applied in order and the patch is atomic: if any operation
+fails, a `PatchError` naming its index is returned and `doc` is left
+untouched. Use `JSON.patch-error-str` to format the error for display.
+
+  (JSON.Patch.apply &doc &patch)")
+    (defn apply [doc patch]
+      (match-ref patch
+        (JSON.Arr ops) (JSON.Patch.apply-from @doc ops 0)
+        _
+          (Result.Error
+            (JSON.PatchError.init -1 (JSON.PatchErrorKind.NotAnArray)))))))
 
 (doc to-json "converts a Carp value to its JSON representation.")
 (definterface to-json (Fn [a] JSON))
