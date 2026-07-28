@@ -1349,16 +1349,26 @@ objects describing a sequence of changes to a document.")
         (JSON.Obj m) (JSON.Patch.apply-obj-op doc m)
         _ (do (ignore doc) (Result.Error (JSON.PatchErrorKind.NotAnObject)))))
 
-    (private apply-from)
-    (hidden apply-from)
-    (register apply-from
-      (Fn [JSON (Ref (Array (Box JSON))) Int] (Result JSON JSON.PatchError)))
-    (defn apply-from [doc ops i]
-      (if (Int.>= i (Array.length ops))
+    (private apply-nth)
+    (hidden apply-nth)
+    (defn apply-nth [acc ops i]
+      (match acc
+        (Result.Error e) (Result.Error e)
         (Result.Success doc)
-        (match (JSON.Patch.apply-op doc (Box.peek (Array.unsafe-nth ops i)))
-          (Result.Error k) (Result.Error (JSON.PatchError.init i k))
-          (Result.Success next) (JSON.Patch.apply-from next ops (Int.inc i)))))
+          (match (JSON.Patch.apply-op doc (Box.peek (Array.unsafe-nth ops i)))
+            (Result.Error k) (Result.Error (JSON.PatchError.init i k))
+            (Result.Success next) (Result.Success next))))
+
+    (private apply-ops)
+    (hidden apply-ops)
+    (defn apply-ops [doc ops]
+      (let-do [acc (Result.Success doc)
+               i 0
+               n (Array.length ops)]
+        (while-do (and (Int.< i n) (Result.success? &acc))
+          (set! acc (JSON.Patch.apply-nth acc ops i))
+          (set! i (Int.inc i)))
+        acc))
 
     (doc apply "applies an RFC 6902 JSON Patch to `doc`, returning the patched
 document.
@@ -1375,7 +1385,7 @@ untouched. Use `JSON.patch-error-str` to format the error for display.
   (JSON.Patch.apply &doc &patch)")
     (defn apply [doc patch]
       (match-ref patch
-        (JSON.Arr ops) (JSON.Patch.apply-from @doc ops 0)
+        (JSON.Arr ops) (JSON.Patch.apply-ops @doc ops)
         _
           (Result.Error
             (JSON.PatchError.init -1 (JSON.PatchErrorKind.NotAnArray)))))))

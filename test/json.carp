@@ -48,6 +48,21 @@
     (Result.Error e) (Maybe.Just @(JSON.PatchError.kind &e))
     (Result.Success r) (do (ignore r) (Maybe.Nothing))))
 
+(defn long-patch-ops [n]
+  (Array.replicate n
+                   &(Box.init
+                     (parse-json "{\"op\":\"add\",\"path\":\"/a\",\"value\":1}"))))
+
+(defn long-patch [n] (JSON.Arr (long-patch-ops n)))
+
+(defn long-patch-failing-at [n i]
+  (let-do [ops (long-patch-ops n)]
+    (Array.aset! &ops
+                 i
+                 (Box.init
+                   (parse-json "{\"op\":\"test\",\"path\":\"/a\",\"value\":99}")))
+    (JSON.Arr ops)))
+
 (def rfc-doc
   (JSON.obj
     [(JSON.entry @"foo"
@@ -1832,4 +1847,24 @@ break")) "str string with newline")
     (= "test failed at operation 2"
        &(JSON.patch-error-str
          &(JSON.PatchError.init 2 (JSON.PatchErrorKind.TestFailed))))
-    "patch-error-str includes the operation index"))
+    "patch-error-str includes the operation index")
+
+  (assert-true test
+    (Result.success?
+      &(JSON.Patch.apply &(parse-json "{\"a\":1}") &(long-patch 25000)))
+    "a 25000 operation patch applies without exhausting the stack")
+
+  (assert-equal test
+    24000
+    @(JSON.PatchError.index
+      &(Result.unsafe-from-error
+        (JSON.Patch.apply &(parse-json "{\"a\":1}")
+                          &(long-patch-failing-at 25000 24000))))
+    "a failure deep in a long patch names its operation index")
+
+  (assert-true test
+    (let-do [src (parse-json "{\"a\":1}")
+             r (JSON.Patch.apply &src &(long-patch-failing-at 25000 24000))]
+      (ignore r)
+      (= &src &(parse-json "{\"a\":1}")))
+    "a long patch that fails deep in leaves the document untouched"))
