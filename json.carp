@@ -84,6 +84,14 @@ neither of which is representable in JSON.")
 (def json-len 0)
 (def json-depth 0)
 (def json-max-depth 128)
+; A patch may insert far more than it contains: `copy` duplicates a subtree, so
+; n operations can build a document of 2^n nodes out of a few hundred bytes.
+; A single `JSON.Patch.apply` may insert at most this many nodes beyond the
+; size of the document and the patch it was given, which keeps its work linear
+; in its inputs. See *patch-budget* and JSON.Patch.edit.
+(def json-max-patch-nodes 25000)
+(def *patch-budget* 0)
+(def *patch-inserted* 0)
 (def *parse-error* (the (Maybe JSON.ParseError) (Maybe.Nothing)))
 (def *serialize-error* (the (Maybe JSON.SerializeError) (Maybe.Nothing)))
 (def *json-indent-width* 0)
@@ -1016,6 +1024,7 @@ operation that failed.")
     (CannotRemoveRoot [])
     (MoveIntoOwnChild [])
     (DepthLimitExceeded [])
+    (SizeLimitExceeded [])
     (TestFailed []))
 
   (doc PatchError "wraps a `PatchErrorKind` together with the index of the
@@ -1044,6 +1053,7 @@ message, without the operation index.")
       (JSON.PatchErrorKind.MoveIntoOwnChild)
         @"cannot move a location into its own child"
       (JSON.PatchErrorKind.DepthLimitExceeded) @"nesting depth limit exceeded"
+      (JSON.PatchErrorKind.SizeLimitExceeded) @"patch size limit exceeded"
       (JSON.PatchErrorKind.TestFailed) @"test failed"))
 
   (doc patch-error-str "formats a `PatchError` as a human-readable message
@@ -1245,6 +1255,42 @@ objects describing a sequence of changes to a document.")
         (Edit.Replace v) (JSON.Patch.value-depth v)
         (Edit.Remove) 0))
 
+    (private value-nodes)
+    (hidden value-nodes)
+    (register value-nodes (Fn [(Ref JSON)] Int))
+    (defn value-nodes [j]
+      (match-ref j
+        (JSON.Obj m)
+          (Int.inc
+            (Map.kv-reduce
+              &(fn [acc k v] (Int.+ acc (JSON.Patch.value-nodes (Box.peek v))))
+              0
+              m))
+        (JSON.Arr a)
+          (Int.inc
+            (Array.reduce
+              &(fn [acc v] (Int.+ acc (JSON.Patch.value-nodes (Box.peek v))))
+              0
+              a))
+        _ 1))
+
+    (private edit-nodes)
+    (hidden edit-nodes)
+    (defn edit-nodes [e]
+      (match-ref e
+        (Edit.Add v) (JSON.Patch.value-nodes v)
+        (Edit.Replace v) (JSON.Patch.value-nodes v)
+        (Edit.Remove) 0))
+
+    (private ops-nodes)
+    (hidden ops-nodes)
+    (defn ops-nodes [ops]
+      (Int.inc
+        (Array.reduce
+          &(fn [acc v] (Int.+ acc (JSON.Patch.value-nodes (Box.peek v))))
+          0
+          ops)))
+
     (private edit)
     (hidden edit)
     (defn edit [doc p e]
@@ -1255,23 +1301,35 @@ objects describing a sequence of changes to a document.")
             (ignore e)
             (Result.Error (JSON.PatchErrorKind.InvalidPointer @p)))
         (Maybe.Just tokens)
-          (cond
-            (Int.>
-              (Int.+ (Array.length &tokens) (JSON.Patch.edit-depth &e))
-              json-max-depth)
-              (do
-                (ignore doc)
-                (ignore e)
-                (Result.Error (JSON.PatchErrorKind.DepthLimitExceeded)))
-            (Array.empty? &tokens)
-              (match e
-                (Edit.Add v) (do (ignore doc) (Result.Success v))
-                (Edit.Replace v) (do (ignore doc) (Result.Success v))
-                (Edit.Remove)
-                  (do
-                    (ignore doc)
-                    (Result.Error (JSON.PatchErrorKind.CannotRemoveRoot))))
-            (JSON.Patch.edit-at doc &tokens 0 e p))))
+          (let-do []
+            ; Every value entering the document passes through here, so this is
+            ; the one place the insertion budget has to be charged. A failed
+            ; operation aborts the whole patch, so overcharging on the error
+            ; paths below cannot affect a patch that goes on to succeed.
+            (set! *patch-inserted*
+                  (Int.+ *patch-inserted* (JSON.Patch.edit-nodes &e)))
+            (cond
+              (Int.>
+                (Int.+ (Array.length &tokens) (JSON.Patch.edit-depth &e))
+                json-max-depth)
+                (do
+                  (ignore doc)
+                  (ignore e)
+                  (Result.Error (JSON.PatchErrorKind.DepthLimitExceeded)))
+              (Int.> *patch-inserted* *patch-budget*)
+                (do
+                  (ignore doc)
+                  (ignore e)
+                  (Result.Error (JSON.PatchErrorKind.SizeLimitExceeded)))
+              (Array.empty? &tokens)
+                (match e
+                  (Edit.Add v) (do (ignore doc) (Result.Success v))
+                  (Edit.Replace v) (do (ignore doc) (Result.Success v))
+                  (Edit.Remove)
+                    (do
+                      (ignore doc)
+                      (Result.Error (JSON.PatchErrorKind.CannotRemoveRoot))))
+              (JSON.Patch.edit-at doc &tokens 0 e p)))))
 
     (private proper-prefix?)
     (hidden proper-prefix?)
@@ -1399,9 +1457,18 @@ objects describing a sequence of changes to a document.")
     (private apply-ops)
     (hidden apply-ops)
     (defn apply-ops [doc ops]
-      (let-do [acc (Result.Success doc)
+      ; Inserting a value the size of the document, or of the patch, is
+      ; ordinary; doing it over and over is the amplification this bounds. The
+      ; two walks are O(doc) and O(patch), both dwarfed by the parses that
+      ; produced them.
+      (let-do [budget (Int.+ json-max-patch-nodes
+                             (Int.+ (JSON.Patch.value-nodes &doc)
+                                    (JSON.Patch.ops-nodes ops)))
+               acc (Result.Success doc)
                i 0
                n (Array.length ops)]
+        (set! *patch-budget* budget)
+        (set! *patch-inserted* 0)
         (while-do (and (Int.< i n) (Result.success? &acc))
           (set! acc (JSON.Patch.apply-nth acc ops i))
           (set! i (Int.inc i)))
@@ -1422,6 +1489,15 @@ untouched. Use `JSON.patch-error-str` to format the error for display.
 An operation that would nest the document deeper than the parser's own limit
 is rejected with `DepthLimitExceeded`, so a patched document is never deeper
 than one `JSON.parse` would accept.
+
+`copy` duplicates a subtree, so a short patch can otherwise build a document
+exponentially larger than itself: twenty-odd operations of a few hundred bytes
+are enough to exhaust memory. A single `apply` may therefore insert no more
+than `json-max-patch-nodes` nodes beyond the combined size of `doc` and
+`patch`, and the operation that exceeds that budget is rejected with
+`SizeLimitExceeded`. Its work is then linear in the size of its inputs. The
+slack is far above what any hand-written patch inserts, and a patch long
+enough to legitimately insert more carries the nodes to pay for it.
 
   (JSON.Patch.apply &doc &patch)")
     (defn apply [doc patch]

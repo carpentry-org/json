@@ -86,6 +86,42 @@
         (set! n (Int.dec (Int.* 2 n)))))
     (fmt "[%s]" &s)))
 
+; Copying /a under a fresh key inside itself doubles the document per operation
+; while adding one level of depth, so the depth limit alone does not stop it.
+(defn fanout-patch [steps]
+  (let-do [s @""]
+    (for [i 0 steps]
+      (set! s
+            (fmt
+              "%s%s{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/a/k%d\"}"
+              &s
+              (if (Int.= i 0) "" ",")
+              i)))
+    (fmt "[%s]" &s)))
+
+; The same doubling laundered through a root temporary, so that neither
+; operation has a `from` that is a prefix of its `path`.
+(defn laundered-fanout-patch [steps]
+  (let-do [s @""]
+    (for [i 0 steps]
+      (set! s
+            (fmt
+              "%s%s{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/t\"},{\"op\":\"copy\",\"from\":\"/t\",\"path\":\"/a/k%d\"}"
+              &s
+              (if (Int.= i 0) "" ",")
+              i)))
+    (fmt "[%s]" &s)))
+
+(defn wide-doc [n]
+  (let-do [s @""]
+    (for [i 0 n] (set! s (fmt "%s%s1" &s (if (Int.= i 0) "" ","))))
+    (fmt "{\"a\":[%s]}" &s)))
+
+(defn patch-err-index [src patch]
+  @(JSON.PatchError.index
+    &(Result.unsafe-from-error
+      (JSON.Patch.apply &(parse-json src) &(parse-json patch)))))
+
 (def rfc-doc
   (JSON.obj
     [(JSON.entry @"foo"
@@ -1934,4 +1970,46 @@ break")) "str string with newline")
                  "[{\"op\":\"add\",\"path\":\"/b/c\",\"value\":%s}]"
                  &(nested-value 126))
                &(fmt "{\"b\":{\"c\":%s}}" &(nested-value 126)))
-    "a value that nests to exactly the limit is applied"))
+    "a value that nests to exactly the limit is applied")
+
+  (assert-true test
+    (match (patch-err-kind "{\"a\":{\"b\":1}}" &(fanout-patch 22))
+      (Maybe.Just (JSON.PatchErrorKind.SizeLimitExceeded)) true
+      _ false)
+    "a patch that doubles the document size is stopped at the size limit")
+
+  (assert-true test
+    (match (patch-err-kind "{\"a\":{\"b\":1}}" &(laundered-fanout-patch 24))
+      (Maybe.Just (JSON.PatchErrorKind.SizeLimitExceeded)) true
+      _ false)
+    "laundering the doubling through a temporary is stopped too")
+
+  (assert-equal test
+    (patch-err-index "{\"a\":{\"b\":1}}" &(fanout-patch 22))
+    (patch-err-index "{\"a\":{\"b\":1}}" &(fanout-patch 200))
+    "the size limit does not move with the length of the patch")
+
+  (assert-true test
+    (not
+      (patch-err? &(wide-doc 30000)
+                  "[{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/b\"}]"))
+    "a copy larger than the slack is allowed when the document pays for it")
+
+  (assert-true test
+    (patch-eq? "{\"a\":{\"b\":1}}"
+               "[{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/a/c\"}]"
+               "{\"a\":{\"b\":1,\"c\":{\"b\":1}}}")
+    "copy may put a location inside its own child, which RFC 6902 4.5 permits")
+
+  (assert-true test
+    (patch-eq? "{\"a\":1}"
+               "[{\"op\":\"copy\",\"from\":\"\",\"path\":\"/b\"}]"
+               "{\"a\":1,\"b\":{\"a\":1}}")
+    "copy from the whole document is permitted")
+
+  (assert-true test
+    (match (patch-err-kind "{\"a\":{\"b\":1}}"
+                           "[{\"op\":\"move\",\"from\":\"/a\",\"path\":\"/a/c\"}]")
+      (Maybe.Just (JSON.PatchErrorKind.MoveIntoOwnChild)) true
+      _ false)
+    "move may not, which RFC 6902 4.4 requires"))

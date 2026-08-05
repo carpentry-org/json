@@ -128,6 +128,14 @@ with `JSON.=`. The empty pointer `""` addresses the whole document.
 Patches are atomic: if any operation fails, the returned `PatchError` names
 the index of the failing operation and the input document is left untouched.
 
+Two limits keep a small patch from doing an unbounded amount of work, since
+`copy` duplicates a subtree and can otherwise build a document exponentially
+larger than the patch itself. An operation that would nest the document deeper
+than `JSON.parse` accepts is rejected with `DepthLimitExceeded`, and one that
+would take the nodes inserted so far past the combined size of the document
+and the patch, plus `json-max-patch-nodes` of slack, is rejected with
+`SizeLimitExceeded`. Neither binds on a patch written by hand.
+
 ### Type predicates
 
 ```clojure
