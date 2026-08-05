@@ -1015,6 +1015,7 @@ operation that failed.")
     (IndexOutOfRange [String])
     (CannotRemoveRoot [])
     (MoveIntoOwnChild [])
+    (DepthLimitExceeded [])
     (TestFailed []))
 
   (doc PatchError "wraps a `PatchErrorKind` together with the index of the
@@ -1042,6 +1043,7 @@ message, without the operation index.")
       (JSON.PatchErrorKind.CannotRemoveRoot) @"cannot remove the whole document"
       (JSON.PatchErrorKind.MoveIntoOwnChild)
         @"cannot move a location into its own child"
+      (JSON.PatchErrorKind.DepthLimitExceeded) @"nesting depth limit exceeded"
       (JSON.PatchErrorKind.TestFailed) @"test failed"))
 
   (doc patch-error-str "formats a `PatchError` as a human-readable message
@@ -1216,6 +1218,33 @@ objects describing a sequence of changes to a document.")
               (ignore e)
               (Result.Error (JSON.PatchErrorKind.NoSuchLocation @p))))))
 
+    (private value-depth)
+    (hidden value-depth)
+    (register value-depth (Fn [(Ref JSON)] Int))
+    (defn value-depth [j]
+      (match-ref j
+        (JSON.Obj m)
+          (Int.inc
+            (Map.kv-reduce
+              &(fn [acc k v] (Int.max acc (JSON.Patch.value-depth (Box.peek v))))
+              0
+              m))
+        (JSON.Arr a)
+          (Int.inc
+            (Array.reduce
+              &(fn [acc v] (Int.max acc (JSON.Patch.value-depth (Box.peek v))))
+              0
+              a))
+        _ 0))
+
+    (private edit-depth)
+    (hidden edit-depth)
+    (defn edit-depth [e]
+      (match-ref e
+        (Edit.Add v) (JSON.Patch.value-depth v)
+        (Edit.Replace v) (JSON.Patch.value-depth v)
+        (Edit.Remove) 0))
+
     (private edit)
     (hidden edit)
     (defn edit [doc p e]
@@ -1226,14 +1255,22 @@ objects describing a sequence of changes to a document.")
             (ignore e)
             (Result.Error (JSON.PatchErrorKind.InvalidPointer @p)))
         (Maybe.Just tokens)
-          (if (Array.empty? &tokens)
-            (match e
-              (Edit.Add v) (do (ignore doc) (Result.Success v))
-              (Edit.Replace v) (do (ignore doc) (Result.Success v))
-              (Edit.Remove)
-                (do
-                  (ignore doc)
-                  (Result.Error (JSON.PatchErrorKind.CannotRemoveRoot))))
+          (cond
+            (Int.>
+              (Int.+ (Array.length &tokens) (JSON.Patch.edit-depth &e))
+              json-max-depth)
+              (do
+                (ignore doc)
+                (ignore e)
+                (Result.Error (JSON.PatchErrorKind.DepthLimitExceeded)))
+            (Array.empty? &tokens)
+              (match e
+                (Edit.Add v) (do (ignore doc) (Result.Success v))
+                (Edit.Replace v) (do (ignore doc) (Result.Success v))
+                (Edit.Remove)
+                  (do
+                    (ignore doc)
+                    (Result.Error (JSON.PatchErrorKind.CannotRemoveRoot))))
             (JSON.Patch.edit-at doc &tokens 0 e p))))
 
     (private proper-prefix?)
@@ -1381,6 +1418,10 @@ members are ignored.
 Operations are applied in order and the patch is atomic: if any operation
 fails, a `PatchError` naming its index is returned and `doc` is left
 untouched. Use `JSON.patch-error-str` to format the error for display.
+
+An operation that would nest the document deeper than the parser's own limit
+is rejected with `DepthLimitExceeded`, so a patched document is never deeper
+than one `JSON.parse` would accept.
 
   (JSON.Patch.apply &doc &patch)")
     (defn apply [doc patch]

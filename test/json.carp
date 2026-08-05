@@ -63,6 +63,29 @@
                    (parse-json "{\"op\":\"test\",\"path\":\"/a\",\"value\":99}")))
     (JSON.Arr ops)))
 
+(defn deep-pointer [n]
+  (let-do [s @""] (for [i 0 n] (set! s (String.append &s "/a"))) s))
+
+(defn nested-value [n]
+  (let-do [s @"{}"] (for [i 1 n] (set! s (fmt "{\"a\":%s}" &s))) s))
+
+(defn deep-add-patch [n]
+  (fmt "[{\"op\":\"add\",\"path\":\"%s\",\"value\":1}]" &(deep-pointer n)))
+
+(defn doubling-patch [steps]
+  (let-do [s @""
+           n 2]
+    (for [i 0 steps]
+      (do
+        (set! s
+              (fmt
+                "%s%s{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"%s\"}"
+                &s
+                (if (Int.= i 0) "" ",")
+                &(deep-pointer n)))
+        (set! n (Int.dec (Int.* 2 n)))))
+    (fmt "[%s]" &s)))
+
 (def rfc-doc
   (JSON.obj
     [(JSON.entry @"foo"
@@ -1867,4 +1890,48 @@ break")) "str string with newline")
              r (JSON.Patch.apply &src &(long-patch-failing-at 25000 24000))]
       (ignore r)
       (= &src &(parse-json "{\"a\":1}")))
-    "a long patch that fails deep in leaves the document untouched"))
+    "a long patch that fails deep in leaves the document untouched")
+
+  (assert-true test
+    (match (patch-err-kind "{}" &(deep-add-patch 129))
+      (Maybe.Just (JSON.PatchErrorKind.DepthLimitExceeded)) true
+      _ false)
+    "a pointer past the depth limit gives DepthLimitExceeded")
+
+  (assert-true test
+    (match (patch-err-kind "{}" &(deep-add-patch 128))
+      (Maybe.Just (JSON.PatchErrorKind.NoSuchLocation p))
+        (= &p &(deep-pointer 128))
+      _ false)
+    "a pointer at exactly the depth limit is not rejected for depth")
+
+  (assert-true test
+    (match (patch-err-kind "{\"a\":{\"a\":{}}}" &(doubling-patch 13))
+      (Maybe.Just (JSON.PatchErrorKind.DepthLimitExceeded)) true
+      _ false)
+    "a patch that doubles the document depth is stopped at the depth limit")
+
+  (assert-equal test
+    6
+    @(JSON.PatchError.index
+      &(Result.unsafe-from-error
+        (JSON.Patch.apply &(parse-json "{\"a\":{\"a\":{}}}")
+                          &(parse-json &(doubling-patch 13)))))
+    "the copies below the depth limit still apply")
+
+  (assert-true test
+    (match (patch-err-kind "{\"b\":{\"c\":{}}}"
+                           &(fmt
+                             "[{\"op\":\"add\",\"path\":\"/b/c/d\",\"value\":%s}]"
+                             &(nested-value 126)))
+      (Maybe.Just (JSON.PatchErrorKind.DepthLimitExceeded)) true
+      _ false)
+    "a value that would nest the document past the limit is rejected")
+
+  (assert-true test
+    (patch-eq? "{\"b\":{}}"
+               &(fmt
+                 "[{\"op\":\"add\",\"path\":\"/b/c\",\"value\":%s}]"
+                 &(nested-value 126))
+               &(fmt "{\"b\":{\"c\":%s}}" &(nested-value 126)))
+    "a value that nests to exactly the limit is applied"))
