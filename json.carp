@@ -1014,7 +1014,7 @@ operation that failed.")
     (InvalidArrayIndex [String])
     (IndexOutOfRange [String])
     (CannotRemoveRoot [])
-    (MoveIntoOwnChild [])
+    (IntoOwnChild [])
     (DepthLimitExceeded [])
     (TestFailed []))
 
@@ -1041,8 +1041,8 @@ message, without the operation index.")
       (JSON.PatchErrorKind.IndexOutOfRange t)
         (fmt "array index '%s' out of range" t)
       (JSON.PatchErrorKind.CannotRemoveRoot) @"cannot remove the whole document"
-      (JSON.PatchErrorKind.MoveIntoOwnChild)
-        @"cannot move a location into its own child"
+      (JSON.PatchErrorKind.IntoOwnChild)
+        @"cannot move or copy a location into its own child"
       (JSON.PatchErrorKind.DepthLimitExceeded) @"nesting depth limit exceeded"
       (JSON.PatchErrorKind.TestFailed) @"test failed"))
 
@@ -1284,39 +1284,38 @@ objects describing a sequence of changes to a document.")
               (set! ok false)))
           ok)))
 
+    (private locations-error)
+    (hidden locations-error)
+    (defn locations-error [from path]
+      (match (JSON.Pointer.parse from)
+        (Maybe.Nothing) (Maybe.Just (JSON.PatchErrorKind.InvalidPointer @from))
+        (Maybe.Just ftoks)
+          (match (JSON.Pointer.parse path)
+            (Maybe.Nothing)
+              (Maybe.Just (JSON.PatchErrorKind.InvalidPointer @path))
+            (Maybe.Just ptoks)
+              (if (JSON.Patch.proper-prefix? &ftoks &ptoks)
+                (Maybe.Just (JSON.PatchErrorKind.IntoOwnChild))
+                (Maybe.Nothing)))))
+
     (private apply-move)
     (hidden apply-move)
     (defn apply-move [doc m path]
       (match (JSON.Patch.str-member m "from")
         (Result.Error e) (do (ignore doc) (Result.Error e))
         (Result.Success from)
-          (match (JSON.Pointer.parse &from)
+          (match (JSON.Patch.locations-error &from path)
+            (Maybe.Just e) (do (ignore doc) (Result.Error e))
             (Maybe.Nothing)
-              (do
-                (ignore doc)
-                (Result.Error (JSON.PatchErrorKind.InvalidPointer @&from)))
-            (Maybe.Just ftoks)
-              (match (JSON.Pointer.parse path)
+              (match (JSON.Pointer.get &doc &from)
                 (Maybe.Nothing)
                   (do
                     (ignore doc)
-                    (Result.Error (JSON.PatchErrorKind.InvalidPointer @path)))
-                (Maybe.Just ptoks)
-                  (if (JSON.Patch.proper-prefix? &ftoks &ptoks)
-                    (do
-                      (ignore doc)
-                      (Result.Error (JSON.PatchErrorKind.MoveIntoOwnChild)))
-                    (match (JSON.Pointer.get &doc &from)
-                      (Maybe.Nothing)
-                        (do
-                          (ignore doc)
-                          (Result.Error
-                            (JSON.PatchErrorKind.NoSuchLocation @&from)))
-                      (Maybe.Just v)
-                        (match (JSON.Patch.edit doc &from (Edit.Remove))
-                          (Result.Error e) (do (ignore v) (Result.Error e))
-                          (Result.Success d)
-                            (JSON.Patch.edit d path (Edit.Add v)))))))))
+                    (Result.Error (JSON.PatchErrorKind.NoSuchLocation @&from)))
+                (Maybe.Just v)
+                  (match (JSON.Patch.edit doc &from (Edit.Remove))
+                    (Result.Error e) (do (ignore v) (Result.Error e))
+                    (Result.Success d) (JSON.Patch.edit d path (Edit.Add v)))))))
 
     (private apply-copy)
     (hidden apply-copy)
@@ -1324,12 +1323,15 @@ objects describing a sequence of changes to a document.")
       (match (JSON.Patch.str-member m "from")
         (Result.Error e) (do (ignore doc) (Result.Error e))
         (Result.Success from)
-          (match (JSON.Pointer.get &doc &from)
+          (match (JSON.Patch.locations-error &from path)
+            (Maybe.Just e) (do (ignore doc) (Result.Error e))
             (Maybe.Nothing)
-              (do
-                (ignore doc)
-                (Result.Error (JSON.PatchErrorKind.NoSuchLocation @&from)))
-            (Maybe.Just v) (JSON.Patch.edit doc path (Edit.Add v)))))
+              (match (JSON.Pointer.get &doc &from)
+                (Maybe.Nothing)
+                  (do
+                    (ignore doc)
+                    (Result.Error (JSON.PatchErrorKind.NoSuchLocation @&from)))
+                (Maybe.Just v) (JSON.Patch.edit doc path (Edit.Add v))))))
 
     (private apply-test)
     (hidden apply-test)
@@ -1418,6 +1420,10 @@ members are ignored.
 Operations are applied in order and the patch is atomic: if any operation
 fails, a `PatchError` naming its index is returned and `doc` is left
 untouched. Use `JSON.patch-error-str` to format the error for display.
+
+`move` and `copy` reject a `from` that is a proper prefix of `path` with
+`IntoOwnChild`; RFC 6902 requires that only of `move`, but a location cannot
+usefully be nested inside itself either way.
 
 An operation that would nest the document deeper than the parser's own limit
 is rejected with `DepthLimitExceeded`, so a patched document is never deeper
