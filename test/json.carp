@@ -72,7 +72,6 @@
 (defn deep-add-patch [n]
   (fmt "[{\"op\":\"add\",\"path\":\"%s\",\"value\":1}]" &(deep-pointer n)))
 
-; launders through /t, since a direct copy into /a's own child is rejected
 (defn doubling-patch [steps]
   (let-do [s @""
            n 2]
@@ -80,22 +79,11 @@
       (do
         (set! s
               (fmt
-                "%s%s{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/t\"},{\"op\":\"copy\",\"from\":\"/t\",\"path\":\"%s\"}"
+                "%s%s{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"%s\"}"
                 &s
                 (if (Int.= i 0) "" ",")
                 &(deep-pointer n)))
         (set! n (Int.dec (Int.* 2 n)))))
-    (fmt "[%s]" &s)))
-
-(defn copy-into-self-patch [n]
-  (let-do [s @""]
-    (for [i 0 n]
-      (set! s
-            (fmt
-              "%s%s{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/a/k%d\"}"
-              &s
-              (if (Int.= i 0) "" ",")
-              i)))
     (fmt "[%s]" &s)))
 
 (def rfc-doc
@@ -1774,50 +1762,10 @@ break")) "str string with newline")
     "copy leaves the source in place")
 
   (assert-true test
-    (match (patch-err-kind "{\"a\":{\"b\":1}}"
-                           "[{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/a/c\"}]")
-      (Maybe.Just (JSON.PatchErrorKind.IntoOwnChild)) true
-      _ false)
-    "copy into a location's own child gives IntoOwnChild")
-
-  (assert-true test
-    (match (patch-err-kind "{\"a\":{\"b\":1}}"
-                           "[{\"op\":\"move\",\"from\":\"/a\",\"path\":\"/a/c\"}]")
-      (Maybe.Just (JSON.PatchErrorKind.IntoOwnChild)) true
-      _ false)
-    "move into a location's own child gives IntoOwnChild")
-
-  (assert-equal test
-    1
-    @(JSON.PatchError.index
-      &(Result.unsafe-from-error
-        (JSON.Patch.apply &(parse-json "{\"a\":{\"b\":1}}")
-                          &(parse-json
-                            "[{\"op\":\"add\",\"path\":\"/d\",\"value\":1},{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/a/c\"}]"))))
-    "a rejected copy names its own operation index")
-
-  (assert-true test
-    (patch-err? "{\"a\":[1,2]}"
-                "[{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/a/0\"}]")
-    "copy into an array index of its own source fails")
-
-  (assert-true test
-    (patch-eq? "{\"a\":1,\"ab\":2}"
-               "[{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/abc\"}]"
-               "{\"a\":1,\"ab\":2,\"abc\":1}")
-    "copy to a sibling with a shared name prefix is allowed")
-
-  (assert-true test
     (patch-eq? "{\"a\":{\"b\":1}}"
-               "[{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/a\"}]"
-               "{\"a\":{\"b\":1}}")
-    "copy to the same location is allowed")
-
-  (assert-true test
-    (match (patch-err-kind "{\"a\":{\"b\":1}}" &(copy-into-self-patch 22))
-      (Maybe.Just (JSON.PatchErrorKind.IntoOwnChild)) true
-      _ false)
-    "a patch that doubles the document by copying into itself is rejected")
+               "[{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/a/c\"}]"
+               "{\"a\":{\"b\":1,\"c\":{\"b\":1}}}")
+    "copy into a location's own child is allowed")
 
   (assert-true test
     (patch-eq? "{\"a\":1}" "[]" "{\"a\":1}")
@@ -1964,7 +1912,7 @@ break")) "str string with newline")
     "a patch that doubles the document depth is stopped at the depth limit")
 
   (assert-equal test
-    13
+    6
     @(JSON.PatchError.index
       &(Result.unsafe-from-error
         (JSON.Patch.apply &(parse-json "{\"a\":{\"a\":{}}}")

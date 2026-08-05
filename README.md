@@ -121,14 +121,12 @@ addressed by JSON Pointer:
 
 All six operations are supported. `add` inserts into an array (shifting the
 rest right, with `-` appending) and inserts or replaces an object member;
-`remove` and `replace` require the location to exist; `move` and `copy` may not
-target a location inside the one they read from; `test` compares the addressed
-value with `JSON.=`. The empty pointer `""` addresses the whole document.
+`remove` and `replace` require the location to exist; `move` may not move a
+location into one of its own children; `test` compares the addressed value
+with `JSON.=`. The empty pointer `""` addresses the whole document.
 
 Patches are atomic: if any operation fails, the returned `PatchError` names
 the index of the failing operation and the input document is left untouched.
-An operation that would nest the document deeper than the parser accepts is
-rejected outright.
 
 ### Type predicates
 
