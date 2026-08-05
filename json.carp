@@ -84,11 +84,9 @@ neither of which is representable in JSON.")
 (def json-len 0)
 (def json-depth 0)
 (def json-max-depth 128)
-; A patch may insert far more than it contains: `copy` duplicates a subtree, so
-; n operations can build a document of 2^n nodes out of a few hundred bytes.
-; A single `JSON.Patch.apply` may insert at most this many nodes beyond the
-; size of the document and the patch it was given, which keeps its work linear
-; in its inputs. See *patch-budget* and JSON.Patch.edit.
+; `copy` duplicates a subtree, so n operations can insert 2^n nodes. A patch may
+; insert this many nodes beyond the combined size of the document and the patch
+; it was given; the budget is charged in JSON.Patch.edit.
 (def json-max-patch-nodes 25000)
 (def *patch-budget* 0)
 (def *patch-inserted* 0)
@@ -1302,10 +1300,9 @@ objects describing a sequence of changes to a document.")
             (Result.Error (JSON.PatchErrorKind.InvalidPointer @p)))
         (Maybe.Just tokens)
           (let-do []
-            ; Every value entering the document passes through here, so this is
-            ; the one place the insertion budget has to be charged. A failed
-            ; operation aborts the whole patch, so overcharging on the error
-            ; paths below cannot affect a patch that goes on to succeed.
+            ; Every value entering the document passes through here. A failed
+            ; operation aborts the patch, so charging before the guards below
+            ; cannot affect a patch that goes on to succeed.
             (set! *patch-inserted*
                   (Int.+ *patch-inserted* (JSON.Patch.edit-nodes &e)))
             (cond
@@ -1457,10 +1454,8 @@ objects describing a sequence of changes to a document.")
     (private apply-ops)
     (hidden apply-ops)
     (defn apply-ops [doc ops]
-      ; Inserting a value the size of the document, or of the patch, is
-      ; ordinary; doing it over and over is the amplification this bounds. The
-      ; two walks are O(doc) and O(patch), both dwarfed by the parses that
-      ; produced them.
+      ; Scaling the budget with the inputs is what lets a long patch, or one
+      ; copying a large subtree, through while still bounding duplication.
       (let-do [budget (Int.+ json-max-patch-nodes
                              (Int.+ (JSON.Patch.value-nodes &doc)
                                     (JSON.Patch.ops-nodes ops)))
@@ -1486,18 +1481,12 @@ Operations are applied in order and the patch is atomic: if any operation
 fails, a `PatchError` naming its index is returned and `doc` is left
 untouched. Use `JSON.patch-error-str` to format the error for display.
 
-An operation that would nest the document deeper than the parser's own limit
-is rejected with `DepthLimitExceeded`, so a patched document is never deeper
-than one `JSON.parse` would accept.
-
-`copy` duplicates a subtree, so a short patch can otherwise build a document
-exponentially larger than itself: twenty-odd operations of a few hundred bytes
-are enough to exhaust memory. A single `apply` may therefore insert no more
-than `json-max-patch-nodes` nodes beyond the combined size of `doc` and
-`patch`, and the operation that exceeds that budget is rejected with
-`SizeLimitExceeded`. Its work is then linear in the size of its inputs. The
-slack is far above what any hand-written patch inserts, and a patch long
-enough to legitimately insert more carries the nodes to pay for it.
+Two limits bound the work a patch can ask for. An operation that would nest
+the document past `json-max-depth` is rejected with `DepthLimitExceeded`, so a
+patched document is never deeper than one `JSON.parse` would accept. An
+`apply` may insert at most `json-max-patch-nodes` nodes beyond the combined
+size of `doc` and `patch`; the operation that exceeds that is rejected with
+`SizeLimitExceeded`.
 
   (JSON.Patch.apply &doc &patch)")
     (defn apply [doc patch]
