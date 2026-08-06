@@ -26,6 +26,102 @@
     (Result.Error e) (Maybe.Just @(JSON.ParseError.kind &e))
     _ (Maybe.Nothing)))
 
+(defn parse-json [s]
+  (match (JSON.parse s)
+    (Result.Success j) j
+    (Result.Error e) (JSON.Str (JSON.parse-error-str &e))))
+
+(defn patched [src patch]
+  (match (JSON.Patch.apply &(parse-json src) &(parse-json patch))
+    (Result.Success r) (Maybe.Just r)
+    (Result.Error e) (do (ignore e) (Maybe.Nothing))))
+
+(defn patch-eq? [src patch expected]
+  (match (patched src patch)
+    (Maybe.Just r) (= &r &(parse-json expected))
+    (Maybe.Nothing) false))
+
+(defn patch-err? [src patch] (Maybe.nothing? &(patched src patch)))
+
+(defn patch-err-kind [src patch]
+  (match (JSON.Patch.apply &(parse-json src) &(parse-json patch))
+    (Result.Error e) (Maybe.Just @(JSON.PatchError.kind &e))
+    (Result.Success r) (do (ignore r) (Maybe.Nothing))))
+
+(defn long-patch-ops [n]
+  (Array.replicate n
+                   &(Box.init
+                     (parse-json "{\"op\":\"add\",\"path\":\"/a\",\"value\":1}"))))
+
+(defn long-patch [n] (JSON.Arr (long-patch-ops n)))
+
+(defn long-patch-failing-at [n i]
+  (let-do [ops (long-patch-ops n)]
+    (Array.aset! &ops
+                 i
+                 (Box.init
+                   (parse-json "{\"op\":\"test\",\"path\":\"/a\",\"value\":99}")))
+    (JSON.Arr ops)))
+
+(defn deep-pointer [n]
+  (let-do [s @""] (for [i 0 n] (set! s (String.append &s "/a"))) s))
+
+(defn nested-value [n]
+  (let-do [s @"{}"] (for [i 1 n] (set! s (fmt "{\"a\":%s}" &s))) s))
+
+(defn deep-add-patch [n]
+  (fmt "[{\"op\":\"add\",\"path\":\"%s\",\"value\":1}]" &(deep-pointer n)))
+
+(defn doubling-patch [steps]
+  (let-do [s @""
+           n 2]
+    (for [i 0 steps]
+      (do
+        (set! s
+              (fmt
+                "%s%s{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"%s\"}"
+                &s
+                (if (Int.= i 0) "" ",")
+                &(deep-pointer n)))
+        (set! n (Int.dec (Int.* 2 n)))))
+    (fmt "[%s]" &s)))
+
+; Copying /a under a fresh key inside itself doubles the document per operation
+; while adding one level of depth, so the depth limit alone does not stop it.
+(defn fanout-patch [steps]
+  (let-do [s @""]
+    (for [i 0 steps]
+      (set! s
+            (fmt
+              "%s%s{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/a/k%d\"}"
+              &s
+              (if (Int.= i 0) "" ",")
+              i)))
+    (fmt "[%s]" &s)))
+
+; The same doubling laundered through a root temporary, so that neither
+; operation has a `from` that is a prefix of its `path`.
+(defn laundered-fanout-patch [steps]
+  (let-do [s @""]
+    (for [i 0 steps]
+      (set! s
+            (fmt
+              "%s%s{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/t\"},{\"op\":\"copy\",\"from\":\"/t\",\"path\":\"/a/k%d\"}"
+              &s
+              (if (Int.= i 0) "" ",")
+              i)))
+    (fmt "[%s]" &s)))
+
+(defn wide-doc [n]
+  (let-do [s @""]
+    (for [i 0 n] (set! s (fmt "%s%s1" &s (if (Int.= i 0) "" ","))))
+    (fmt "{\"a\":[%s]}" &s)))
+
+(defn patch-err-index [src patch]
+  @(JSON.PatchError.index
+    &(Result.unsafe-from-error
+      (JSON.Patch.apply &(parse-json src) &(parse-json patch)))))
+
 (def rfc-doc
   (JSON.obj
     [(JSON.entry @"foo"
@@ -1444,4 +1540,476 @@ break")) "str string with newline")
 
   (assert-true test
     (Maybe.nothing? &(JSON.Pointer.get &rfc-doc "foo"))
-    "Pointer.get returns Nothing for an invalid pointer"))
+    "Pointer.get returns Nothing for an invalid pointer")
+
+  (assert-true test
+    (= &(parse-json "1") &(parse-json "1"))
+    "= compares equal numbers")
+
+  (assert-true test
+    (= &(parse-json "1") &(parse-json "1.0"))
+    "= treats 1 and 1.0 as the same number")
+
+  (assert-true test
+    (/= &(parse-json "10") &(parse-json "\"10\""))
+    "= distinguishes a number from a string")
+
+  (assert-true test
+    (/= &(parse-json "null") &(parse-json "false"))
+    "= distinguishes null from false")
+
+  (assert-true test
+    (= &(parse-json "{\"a\":1,\"b\":2}") &(parse-json "{\"b\":2,\"a\":1}"))
+    "= compares objects independent of member order")
+
+  (assert-true test
+    (/= &(parse-json "{\"a\":1}") &(parse-json "{\"a\":1,\"b\":2}"))
+    "= rejects objects with different member counts")
+
+  (assert-true test
+    (/= &(parse-json "{\"a\":1,\"b\":2}") &(parse-json "{\"a\":1}"))
+    "= rejects objects with different member counts either way")
+
+  (assert-true test
+    (/= &(parse-json "{\"a\":1}") &(parse-json "{\"b\":1}"))
+    "= rejects objects with different keys")
+
+  (assert-true test
+    (= &(parse-json "[1,[2,{\"a\":null}]]") &(parse-json "[1,[2,{\"a\":null}]]"))
+    "= compares nested containers")
+
+  (assert-true test
+    (/= &(parse-json "[1,2]") &(parse-json "[2,1]"))
+    "= respects array order")
+
+  (assert-true test
+    (/= &(parse-json "[1,2]") &(parse-json "[1,2,3]"))
+    "= rejects arrays of different lengths")
+
+  (assert-true test
+    (patch-eq? "{\"foo\":\"bar\"}"
+               "[{\"op\":\"add\",\"path\":\"/baz\",\"value\":\"qux\"}]"
+               "{\"baz\":\"qux\",\"foo\":\"bar\"}")
+    "RFC 6902 A.1 adding an object member")
+
+  (assert-true test
+    (patch-eq? "{\"foo\":[\"bar\",\"baz\"]}"
+               "[{\"op\":\"add\",\"path\":\"/foo/1\",\"value\":\"qux\"}]"
+               "{\"foo\":[\"bar\",\"qux\",\"baz\"]}")
+    "RFC 6902 A.2 adding an array element")
+
+  (assert-true test
+    (patch-eq? "{\"baz\":\"qux\",\"foo\":\"bar\"}"
+               "[{\"op\":\"remove\",\"path\":\"/baz\"}]"
+               "{\"foo\":\"bar\"}")
+    "RFC 6902 A.3 removing an object member")
+
+  (assert-true test
+    (patch-eq? "{\"foo\":[\"bar\",\"qux\",\"baz\"]}"
+               "[{\"op\":\"remove\",\"path\":\"/foo/1\"}]"
+               "{\"foo\":[\"bar\",\"baz\"]}")
+    "RFC 6902 A.4 removing an array element")
+
+  (assert-true test
+    (patch-eq? "{\"baz\":\"qux\",\"foo\":\"bar\"}"
+               "[{\"op\":\"replace\",\"path\":\"/baz\",\"value\":\"boo\"}]"
+               "{\"baz\":\"boo\",\"foo\":\"bar\"}")
+    "RFC 6902 A.5 replacing a value")
+
+  (assert-true test
+    (patch-eq?
+      "{\"foo\":{\"bar\":\"baz\",\"waldo\":\"fred\"},\"qux\":{\"corge\":\"grault\"}}"
+      "[{\"op\":\"move\",\"from\":\"/foo/waldo\",\"path\":\"/qux/thud\"}]"
+      "{\"foo\":{\"bar\":\"baz\"},\"qux\":{\"corge\":\"grault\",\"thud\":\"fred\"}}")
+    "RFC 6902 A.6 moving a value")
+
+  (assert-true test
+    (patch-eq?
+      "{\"foo\":[\"all\",\"grass\",\"cows\",\"eat\"]}"
+      "[{\"op\":\"move\",\"from\":\"/foo/1\",\"path\":\"/foo/3\"}]"
+      "{\"foo\":[\"all\",\"cows\",\"eat\",\"grass\"]}")
+    "RFC 6902 A.7 moving an array element")
+
+  (assert-true test
+    (patch-eq?
+      "{\"baz\":\"qux\",\"foo\":[\"a\",2,\"c\"]}"
+      "[{\"op\":\"test\",\"path\":\"/baz\",\"value\":\"qux\"},{\"op\":\"test\",\"path\":\"/foo/1\",\"value\":2}]"
+      "{\"baz\":\"qux\",\"foo\":[\"a\",2,\"c\"]}")
+    "RFC 6902 A.8 testing a value succeeds and leaves the document alone")
+
+  (assert-true test
+    (patch-err? "{\"baz\":\"qux\"}"
+                "[{\"op\":\"test\",\"path\":\"/baz\",\"value\":\"bar\"}]")
+    "RFC 6902 A.9 testing a value against a mismatch fails")
+
+  (assert-true test
+    (patch-eq? "{\"foo\":\"bar\"}"
+               "[{\"op\":\"add\",\"path\":\"/child\",\"value\":{\"grandchild\":{}}}]"
+               "{\"foo\":\"bar\",\"child\":{\"grandchild\":{}}}")
+    "RFC 6902 A.10 adding a nested member object")
+
+  (assert-true test
+    (patch-eq? "{\"foo\":\"bar\"}"
+               "[{\"op\":\"add\",\"path\":\"/baz\",\"value\":\"qux\",\"xyz\":123}]"
+               "{\"foo\":\"bar\",\"baz\":\"qux\"}")
+    "RFC 6902 A.11 unrecognized operation members are ignored")
+
+  (assert-true test
+    (patch-err? "{\"foo\":\"bar\"}"
+                "[{\"op\":\"add\",\"path\":\"/baz/bat\",\"value\":\"qux\"}]")
+    "RFC 6902 A.12 adding to a nonexistent target fails")
+
+  (assert-true test
+    (patch-err? "{\"foo\":\"bar\"}"
+                "[{\"op\":\"add\",\"path\":\"/baz\",\"value\":\"qux\",\"op\":\"remove\"}]")
+    "RFC 6902 A.13 an invalid patch document is rejected")
+
+  (assert-true test
+    (patch-eq? "{\"/\":9,\"~1\":10}"
+               "[{\"op\":\"test\",\"path\":\"/~01\",\"value\":10}]"
+               "{\"/\":9,\"~1\":10}")
+    "RFC 6902 A.14 ~ escape ordering")
+
+  (assert-true test
+    (patch-err? "{\"/\":9,\"~1\":10}"
+                "[{\"op\":\"test\",\"path\":\"/~01\",\"value\":\"10\"}]")
+    "RFC 6902 A.15 comparing strings and numbers fails")
+
+  (assert-true test
+    (patch-eq? "{\"foo\":[\"bar\"]}"
+               "[{\"op\":\"add\",\"path\":\"/foo/-\",\"value\":[\"abc\",\"def\"]}]"
+               "{\"foo\":[\"bar\",[\"abc\",\"def\"]]}")
+    "RFC 6902 A.16 adding an array value")
+
+  (assert-true test
+    (patch-eq? "{}" "[{\"op\":\"add\",\"path\":\"/a\",\"value\":1}]" "{\"a\":1}")
+    "add on an empty document")
+
+  (assert-true test
+    (patch-eq? "[]" "[{\"op\":\"add\",\"path\":\"/-\",\"value\":1}]" "[1]")
+    "add with - appends to an empty array")
+
+  (assert-true test
+    (patch-eq? "[1,2]"
+               "[{\"op\":\"add\",\"path\":\"/2\",\"value\":3}]"
+               "[1,2,3]")
+    "add at an index equal to the array length appends")
+
+  (assert-true test
+    (patch-err? "[1,2]" "[{\"op\":\"add\",\"path\":\"/3\",\"value\":3}]")
+    "add past the end of an array fails")
+
+  (assert-true test
+    (patch-err? "[1,2]" "[{\"op\":\"replace\",\"path\":\"/2\",\"value\":3}]")
+    "replace at an index equal to the array length fails")
+
+  (assert-true test
+    (patch-err? "{\"a\":1}" "[{\"op\":\"replace\",\"path\":\"/b\",\"value\":2}]")
+    "replace of a missing member fails where add would succeed")
+
+  (assert-true test
+    (patch-eq? "{\"a\":1}"
+               "[{\"op\":\"add\",\"path\":\"/a\",\"value\":2}]"
+               "{\"a\":2}")
+    "add over an existing member replaces it")
+
+  (assert-true test
+    (patch-err? "[1,2]" "[{\"op\":\"remove\",\"path\":\"/-\"}]")
+    "remove rejects the - token")
+
+  (assert-true test
+    (patch-err? "[1,2]" "[{\"op\":\"remove\",\"path\":\"/01\"}]")
+    "an array index with a leading zero is rejected")
+
+  (assert-true test
+    (patch-err? "{\"a\":1}" "[{\"op\":\"remove\",\"path\":\"\"}]")
+    "remove of the whole document fails")
+
+  (assert-true test
+    (patch-eq? "{\"a\":1}"
+               "[{\"op\":\"replace\",\"path\":\"\",\"value\":[1,2]}]"
+               "[1,2]")
+    "replace with the empty pointer replaces the whole document")
+
+  (assert-true test
+    (patch-eq? "{\"a\":1}" "[{\"op\":\"add\",\"path\":\"\",\"value\":2}]" "2")
+    "add with the empty pointer replaces the whole document")
+
+  (assert-true test
+    (patch-eq? "{\"a\":1}"
+               "[{\"op\":\"test\",\"path\":\"\",\"value\":{\"a\":1}}]"
+               "{\"a\":1}")
+    "test with the empty pointer compares the whole document")
+
+  (assert-true test
+    (patch-eq? "{\"a\":null}"
+               "[{\"op\":\"test\",\"path\":\"/a\",\"value\":null}]"
+               "{\"a\":null}")
+    "test matches a null member")
+
+  (assert-true test
+    (patch-err? "{}" "[{\"op\":\"test\",\"path\":\"/a\",\"value\":null}]")
+    "test on a missing member fails even against null")
+
+  (assert-true test
+    (patch-eq? "{\"a\":1.0}"
+               "[{\"op\":\"test\",\"path\":\"/a\",\"value\":1}]"
+               "{\"a\":1.0}")
+    "test compares 1 against 1.0 by value")
+
+  (assert-true test
+    (patch-eq? "{\"a\":{\"b\":{\"c\":[0,{\"d\":1}]}}}"
+               "[{\"op\":\"replace\",\"path\":\"/a/b/c/1/d\",\"value\":2}]"
+               "{\"a\":{\"b\":{\"c\":[0,{\"d\":2}]}}}")
+    "operations reach deeply nested paths")
+
+  (assert-true test
+    (patch-eq? "{\"a/b\":1,\"m~n\":2}"
+               "[{\"op\":\"move\",\"from\":\"/a~1b\",\"path\":\"/m~0n\"}]"
+               "{\"m~n\":1}")
+    "escaped tokens are decoded in both path and from")
+
+  (assert-true test
+    (patch-err? "{\"a\":{\"b\":1}}"
+                "[{\"op\":\"move\",\"from\":\"/a\",\"path\":\"/a/c\"}]")
+    "move into a location's own child fails")
+
+  (assert-true test
+    (patch-eq? "{\"a\":1,\"ab\":2}"
+               "[{\"op\":\"move\",\"from\":\"/a\",\"path\":\"/abc\"}]"
+               "{\"ab\":2,\"abc\":1}")
+    "move to a sibling with a shared name prefix is allowed")
+
+  (assert-true test
+    (patch-eq? "{\"a\":1}"
+               "[{\"op\":\"move\",\"from\":\"/a\",\"path\":\"/a\"}]"
+               "{\"a\":1}")
+    "move to the same location is allowed")
+
+  (assert-true test
+    (patch-err? "{\"a\":1}"
+                "[{\"op\":\"move\",\"from\":\"/b\",\"path\":\"/c\"}]")
+    "move from a nonexistent location fails")
+
+  (assert-true test
+    (patch-eq? "{\"a\":[1]}"
+               "[{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/b\"}]"
+               "{\"a\":[1],\"b\":[1]}")
+    "copy leaves the source in place")
+
+  (assert-true test
+    (patch-eq? "{\"a\":{\"b\":1}}"
+               "[{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/a/c\"}]"
+               "{\"a\":{\"b\":1,\"c\":{\"b\":1}}}")
+    "copy into a location's own child is allowed")
+
+  (assert-true test
+    (patch-eq? "{\"a\":1}" "[]" "{\"a\":1}")
+    "an empty patch is a no-op")
+
+  (assert-true test
+    (patch-eq? "{\"a\":1}"
+               "[{\"op\":\"add\",\"path\":\"/b\",\"value\":2},{\"op\":\"remove\",\"path\":\"/a\"},{\"op\":\"test\",\"path\":\"/b\",\"value\":2}]"
+               "{\"b\":2}")
+    "operations are applied in order")
+
+  (assert-true test
+    (let [d (parse-json "{\"a\":[1,2]}")]
+      (and
+        (Result.error?
+          &(JSON.Patch.apply &d
+                             &(parse-json
+                               "[{\"op\":\"remove\",\"path\":\"/a/0\"},{\"op\":\"remove\",\"path\":\"/a/9\"}]")))
+        (= &d &(parse-json "{\"a\":[1,2]}"))))
+    "a failing operation leaves the document unchanged")
+
+  (assert-true test
+    (match (JSON.Patch.apply &(parse-json "{\"a\":1}")
+                             &(parse-json
+                               "[{\"op\":\"remove\",\"path\":\"/a\"},{\"op\":\"remove\",\"path\":\"/b\"}]"))
+      (Result.Error e) (= 1 @(JSON.PatchError.index &e))
+      _ false)
+    "the error names the index of the failing operation")
+
+  (assert-true test
+    (match (JSON.Patch.apply &(parse-json "{\"a\":1}") &(parse-json "{}"))
+      (Result.Error e)
+        (match-ref (JSON.PatchError.kind &e)
+          (JSON.PatchErrorKind.NotAnArray) (= -1 @(JSON.PatchError.index &e))
+          _ false)
+      _ false)
+    "a patch that is not an array gives NotAnArray at index -1")
+
+  (assert-true test
+    (match (patch-err-kind "{}" "[1]")
+      (Maybe.Just (JSON.PatchErrorKind.NotAnObject)) true
+      _ false)
+    "an operation that is not an object gives NotAnObject")
+
+  (assert-true test
+    (match (patch-err-kind "{}" "[{\"path\":\"/a\"}]")
+      (Maybe.Just (JSON.PatchErrorKind.MissingMember n)) (= &n "op")
+      _ false)
+    "a missing op member gives MissingMember")
+
+  (assert-true test
+    (match (patch-err-kind "{\"a\":1}" "[{\"op\":\"add\",\"path\":\"/b\"}]")
+      (Maybe.Just (JSON.PatchErrorKind.MissingMember n)) (= &n "value")
+      _ false)
+    "add without a value gives MissingMember")
+
+  (assert-true test
+    (match (patch-err-kind "{}" "[{\"op\":1,\"path\":\"/a\"}]")
+      (Maybe.Just (JSON.PatchErrorKind.NotAString n)) (= &n "op")
+      _ false)
+    "a non-string op gives NotAString")
+
+  (assert-true test
+    (match (patch-err-kind "{}" "[{\"op\":\"add\",\"path\":[],\"value\":1}]")
+      (Maybe.Just (JSON.PatchErrorKind.NotAString n)) (= &n "path")
+      _ false)
+    "a non-string path gives NotAString")
+
+  (assert-true test
+    (match (patch-err-kind "{}" "[{\"op\":\"frobnicate\",\"path\":\"/a\"}]")
+      (Maybe.Just (JSON.PatchErrorKind.UnknownOp o)) (= &o "frobnicate")
+      _ false)
+    "an unknown op gives UnknownOp")
+
+  (assert-true test
+    (match (patch-err-kind "{}" "[{\"op\":\"add\",\"path\":\"a\",\"value\":1}]")
+      (Maybe.Just (JSON.PatchErrorKind.InvalidPointer p)) (= &p "a")
+      _ false)
+    "a pointer without a leading / gives InvalidPointer")
+
+  (assert-true test
+    (match (patch-err-kind "{\"a\":1}"
+                           "[{\"op\":\"move\",\"from\":\"a\",\"path\":\"/b\"}]")
+      (Maybe.Just (JSON.PatchErrorKind.InvalidPointer p)) (= &p "a")
+      _ false)
+    "an invalid from pointer gives InvalidPointer")
+
+  (assert-true test
+    (match (patch-err-kind "{\"a\":1}" "[{\"op\":\"move\",\"path\":\"/b\"}]")
+      (Maybe.Just (JSON.PatchErrorKind.MissingMember n)) (= &n "from")
+      _ false)
+    "move without a from member gives MissingMember")
+
+  (assert-true test
+    (match (patch-err-kind "{\"a\":[1]}"
+                           "[{\"op\":\"remove\",\"path\":\"/a/x\"}]")
+      (Maybe.Just (JSON.PatchErrorKind.InvalidArrayIndex t)) (= &t "x")
+      _ false)
+    "a non-numeric array token gives InvalidArrayIndex")
+
+  (assert-true test
+    (= "test failed at operation 2"
+       &(JSON.patch-error-str
+         &(JSON.PatchError.init 2 (JSON.PatchErrorKind.TestFailed))))
+    "patch-error-str includes the operation index")
+
+  (assert-true test
+    (Result.success?
+      &(JSON.Patch.apply &(parse-json "{\"a\":1}") &(long-patch 25000)))
+    "a 25000 operation patch applies without exhausting the stack")
+
+  (assert-equal test
+    24000
+    @(JSON.PatchError.index
+      &(Result.unsafe-from-error
+        (JSON.Patch.apply &(parse-json "{\"a\":1}")
+                          &(long-patch-failing-at 25000 24000))))
+    "a failure deep in a long patch names its operation index")
+
+  (assert-true test
+    (let-do [src (parse-json "{\"a\":1}")
+             r (JSON.Patch.apply &src &(long-patch-failing-at 25000 24000))]
+      (ignore r)
+      (= &src &(parse-json "{\"a\":1}")))
+    "a long patch that fails deep in leaves the document untouched")
+
+  (assert-true test
+    (match (patch-err-kind "{}" &(deep-add-patch 129))
+      (Maybe.Just (JSON.PatchErrorKind.DepthLimitExceeded)) true
+      _ false)
+    "a pointer past the depth limit gives DepthLimitExceeded")
+
+  (assert-true test
+    (match (patch-err-kind "{}" &(deep-add-patch 128))
+      (Maybe.Just (JSON.PatchErrorKind.NoSuchLocation p))
+        (= &p &(deep-pointer 128))
+      _ false)
+    "a pointer at exactly the depth limit is not rejected for depth")
+
+  (assert-true test
+    (match (patch-err-kind "{\"a\":{\"a\":{}}}" &(doubling-patch 13))
+      (Maybe.Just (JSON.PatchErrorKind.DepthLimitExceeded)) true
+      _ false)
+    "a patch that doubles the document depth is stopped at the depth limit")
+
+  (assert-equal test
+    6
+    @(JSON.PatchError.index
+      &(Result.unsafe-from-error
+        (JSON.Patch.apply &(parse-json "{\"a\":{\"a\":{}}}")
+                          &(parse-json &(doubling-patch 13)))))
+    "the copies below the depth limit still apply")
+
+  (assert-true test
+    (match (patch-err-kind "{\"b\":{\"c\":{}}}"
+                           &(fmt
+                             "[{\"op\":\"add\",\"path\":\"/b/c/d\",\"value\":%s}]"
+                             &(nested-value 126)))
+      (Maybe.Just (JSON.PatchErrorKind.DepthLimitExceeded)) true
+      _ false)
+    "a value that would nest the document past the limit is rejected")
+
+  (assert-true test
+    (patch-eq? "{\"b\":{}}"
+               &(fmt
+                 "[{\"op\":\"add\",\"path\":\"/b/c\",\"value\":%s}]"
+                 &(nested-value 126))
+               &(fmt "{\"b\":{\"c\":%s}}" &(nested-value 126)))
+    "a value that nests to exactly the limit is applied")
+
+  (assert-true test
+    (match (patch-err-kind "{\"a\":{\"b\":1}}" &(fanout-patch 22))
+      (Maybe.Just (JSON.PatchErrorKind.SizeLimitExceeded)) true
+      _ false)
+    "a patch that doubles the document size is stopped at the size limit")
+
+  (assert-true test
+    (match (patch-err-kind "{\"a\":{\"b\":1}}" &(laundered-fanout-patch 24))
+      (Maybe.Just (JSON.PatchErrorKind.SizeLimitExceeded)) true
+      _ false)
+    "laundering the doubling through a temporary is stopped too")
+
+  (assert-equal test
+    (patch-err-index "{\"a\":{\"b\":1}}" &(fanout-patch 22))
+    (patch-err-index "{\"a\":{\"b\":1}}" &(fanout-patch 200))
+    "the size limit does not move with the length of the patch")
+
+  (assert-true test
+    (not
+      (patch-err? &(wide-doc 30000)
+                  "[{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/b\"}]"))
+    "a copy larger than the slack is allowed when the document pays for it")
+
+  (assert-true test
+    (patch-eq? "{\"a\":{\"b\":1}}"
+               "[{\"op\":\"copy\",\"from\":\"/a\",\"path\":\"/a/c\"}]"
+               "{\"a\":{\"b\":1,\"c\":{\"b\":1}}}")
+    "copy may put a location inside its own child, which RFC 6902 4.5 permits")
+
+  (assert-true test
+    (patch-eq? "{\"a\":1}"
+               "[{\"op\":\"copy\",\"from\":\"\",\"path\":\"/b\"}]"
+               "{\"a\":1,\"b\":{\"a\":1}}")
+    "copy from the whole document is permitted")
+
+  (assert-true test
+    (match (patch-err-kind "{\"a\":{\"b\":1}}"
+                           "[{\"op\":\"move\",\"from\":\"/a\",\"path\":\"/a/c\"}]")
+      (Maybe.Just (JSON.PatchErrorKind.MoveIntoOwnChild)) true
+      _ false)
+    "move may not, which RFC 6902 4.4 requires"))
