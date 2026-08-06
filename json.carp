@@ -811,10 +811,11 @@ resolve to a value.
       (Maybe.Just old) (JSON.set-in j keys (f old))
       (Maybe.Nothing) (do (ignore f) j)))
 
-  (private eq?)
-  (hidden eq?)
-  (register eq? (Fn [(Ref JSON) (Ref JSON)] Bool))
-  (defn eq? [a b]
+  (register = (Fn [(Ref JSON) (Ref JSON)] Bool))
+  (doc = "compares two JSON values structurally: arrays by length and order,
+objects by key set independent of member order. `Num` holds a `Double`, so `1`
+and `1.0` are one value, which is how RFC 6902 s4.6 compares numbers.")
+  (defn = [a b]
     (match-ref a
       (JSON.Null) (JSON.null? b)
       (JSON.Bool x) (match-ref b (JSON.Bool y) (Bool.= @x @y) _ false)
@@ -827,8 +828,8 @@ resolve to a value.
               (Int.= (Array.length x) (Array.length y))
               (let-do [ok true]
                 (for [i 0 (Array.length x)]
-                  (unless (JSON.eq? (Box.peek (Array.unsafe-nth x i))
-                                    (Box.peek (Array.unsafe-nth y i)))
+                  (unless (JSON.= (Box.peek (Array.unsafe-nth x i))
+                                  (Box.peek (Array.unsafe-nth y i)))
                     (set! ok false)))
                 ok))
           _ false)
@@ -843,16 +844,11 @@ resolve to a value.
                      (match (Map.get-maybe y (Array.unsafe-nth &ks i))
                        (Maybe.Nothing) (set! ok false)
                        (Maybe.Just yv)
-                         (unless (JSON.eq? (Box.peek (Array.unsafe-nth &vs i))
-                                           (Box.peek &yv))
+                         (unless (JSON.= (Box.peek (Array.unsafe-nth &vs i))
+                                         (Box.peek &yv))
                            (set! ok false))))
                    ok))
           _ false)))
-
-  (doc = "compares two JSON values structurally: arrays by length and order,
-objects by key set independent of member order. `Num` holds a `Double`, so `1`
-and `1.0` are one value, which is how RFC 6902 s4.6 compares numbers.")
-  (defn = [a b] (JSON.eq? a b))
   (implements = JSON.=))
 
 (defmodule JSON
