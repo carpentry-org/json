@@ -1,29 +1,7 @@
 (doc JSON "is a JSON data type, parser, and serializer for Carp.
 
-## Installation
-
-```
-(load \"git@github.com:carpentry-org/json@0.5.0\")
-```
-
-## Usage
-
-```
-; Parse JSON
-(match (JSON.parse \"{\\\"name\\\": \\\"carp\\\"}\")
-  (Result.Success j) (println* &j)
-  (Result.Error e) (IO.errorln &(JSON.parse-error-str &e)))
-
-; Build JSON
-(def j (JSON.obj [(JSON.entry @\"name\" (JSON.Str @\"carp\"))
-                  (JSON.entry @\"version\" (JSON.Num 1.0))]))
-
-; Access values
-(JSON.get &j \"name\") ; => (Maybe.Just (JSON.Str \"carp\"))
-
-; Convert native values via to-json
-(to-json @\"hello\") ; => (JSON.Str \"hello\")
-```")
+A sum type with six variants: `Null`, `Bool`, `Num`, `Str`, `Arr`, and `Obj`.
+Arrays and objects hold `Box`ed values because the type is recursive.")
 
 (defmodule Double
   (register nan? (Fn [Double] Bool) "isnan")
@@ -631,13 +609,9 @@ message.")
       (serialize-buf-push! 125b)
       (set! *emit-sep* saved)))
 
-  (doc str "serializes a JSON value to its string representation.
-
-Returns a `(Result String SerializeError)`. Errors are returned only when
-a `JSON.Num` contains NaN or infinity, neither of which is representable
-in JSON.
-
-Produces compact output with no extra whitespace.")
+  (doc str "serializes a JSON value to a compact string with no extra
+whitespace. Returns a `(Result String SerializeError)`, which errors only on a
+`JSON.Num` holding NaN or infinity, neither representable in JSON.")
   (defn str [j]
     (do
       (set! *serialize-error* (the (Maybe JSON.SerializeError) (Maybe.Nothing)))
@@ -820,24 +794,18 @@ unchanged.")
               (JSON.Obj (Map.put m k &bv)))
           other (do (ignore v) other)))))
 
-  (doc set-in "sets a value at a nested path through objects and arrays.
-
-Path elements that parse as non-negative integers index into arrays;
-all other elements are used as object keys. Missing intermediate object
-keys are created automatically.
+  (doc set-in "sets a value at a nested path, creating missing intermediate
+object keys. Path elements that parse as non-negative integers index into
+arrays, all others are object keys.
 
   (JSON.set-in j &[@\"users\" @\"0\" @\"name\"] (JSON.Str @\"Alice\"))")
   (defn set-in [j keys v] (JSON.set-in-at j keys 0 v))
 
-  (doc update-in "applies a function to the value at a nested path.
+  (doc update-in "applies a function to the value at a nested path, indexing
+arrays as `set-in` does. Returns the input unchanged if the path does not
+resolve to a value.
 
-Path elements that parse as non-negative integers index into arrays.
-If the path does not resolve to a value, returns the input unchanged.
-
-  (JSON.update-in j &[@\"count\"] (fn [n]
-    (match (JSON.as-num &n)
-      (Maybe.Just x) (JSON.Num (+ x 1.0))
-      (Maybe.Nothing) n)))")
+  (JSON.update-in j &[@\"count\"] (fn [n] (JSON.Num 1.0)))")
   (defn update-in [j keys f]
     (match (JSON.get-in &j keys)
       (Maybe.Just old) (JSON.set-in j keys (f old))
@@ -881,15 +849,9 @@ If the path does not resolve to a value, returns the input unchanged.
                    ok))
           _ false)))
 
-  (doc = "compares two JSON values structurally.
-
-Arrays are equal when they have the same length and equal elements in the
-same order. Objects are equal when they have the same set of keys with equal
-values, independent of member order.
-
-`Num` holds a `Double`, so `1` and `1.0` are the same JSON value: a `test`
-patch operation on `1` matches a document containing `1.0`. RFC 6902 s4.6
-compares numbers by value, so this is the intended reading.")
+  (doc = "compares two JSON values structurally: arrays by length and order,
+objects by key set independent of member order. `Num` holds a `Double`, so `1`
+and `1.0` are one value, which is how RFC 6902 s4.6 compares numbers.")
   (defn = [a b] (JSON.eq? a b))
   (implements = JSON.=))
 
@@ -957,10 +919,9 @@ into `~1` so it can be embedded in a pointer string.")
 
     (doc parse "parses a pointer string into its decoded reference tokens.
 
-The empty string yields an empty token array, which addresses the whole
-document. A non-empty pointer must begin with `/`, otherwise `Nothing` is
-returned. Empty tokens are preserved: a trailing `/` addresses the
-empty-string key.")
+The empty string yields an empty token array, addressing the whole document. A
+non-empty pointer must begin with `/` or `Nothing` is returned. Empty tokens
+are preserved, so a trailing `/` addresses the empty-string key.")
     (defn parse [p]
       (cond
         (String.empty? p) (Maybe.Just (the (Array String) []))
@@ -984,12 +945,8 @@ empty-string key.")
         _ (Maybe.Nothing)))
 
     (doc get "resolves an RFC 6901 JSON Pointer against `doc`, returning a copy
-of the addressed value or `Nothing`.
-
-The empty pointer addresses the whole document. Object keys match by string.
-An array token must be `0` or a positive integer without a leading zero; the
-`-` end-of-array token, out-of-range indices, indexing a non-container, and
-invalid pointers all yield `Nothing`.
+of the addressed value or `Nothing`. The empty pointer addresses the whole
+document; array tokens follow `array-index`.
 
   (JSON.Pointer.get &doc \"/foo/0\")")
     (defn get [doc pointer]
@@ -1469,24 +1426,9 @@ objects describing a sequence of changes to a document.")
           (set! i (Int.inc i)))
         acc))
 
-    (doc apply "applies an RFC 6902 JSON Patch to `doc`, returning the patched
-document.
-
-`patch` must be a JSON array of operation objects, each with a string `op` of
-`add`, `remove`, `replace`, `move`, `copy` or `test`, a string `path` holding
-an RFC 6901 pointer, and the members that operation requires. Unrecognized
-members are ignored.
-
-Operations are applied in order and the patch is atomic: if any operation
-fails, a `PatchError` naming its index is returned and `doc` is left
-untouched. Use `JSON.patch-error-str` to format the error for display.
-
-Two limits bound the work a patch can ask for. An operation that would nest
-the document past `json-max-depth` is rejected with `DepthLimitExceeded`, so a
-patched document is never deeper than one `JSON.parse` would accept. An
-`apply` may insert at most `json-max-patch-nodes` nodes beyond the combined
-size of `doc` and `patch`; the operation that exceeds that is rejected with
-`SizeLimitExceeded`.
+    (doc apply "applies an RFC 6902 JSON Patch to `doc`, returning a
+`(Result JSON PatchError)`. Operations are applied in order and the patch is
+atomic: on failure `doc` is untouched and the error names the operation index.
 
   (JSON.Patch.apply &doc &patch)")
     (defn apply [doc patch]
