@@ -1032,6 +1032,8 @@ objects describing a sequence of changes to a document.")
 
     (private str-member)
     (hidden str-member)
+    ; Not `Maybe.to-result`: it takes the error by value, so the `MissingMember`
+    ; string would be built on every lookup, including the ones that succeed.
     (defn str-member [m k]
       (match (Map.get-maybe m k)
         (Maybe.Nothing) (Result.Error (JSON.PatchErrorKind.MissingMember @k))
@@ -1409,9 +1411,9 @@ objects describing a sequence of changes to a document.")
       (match acc
         (Result.Error e) (Result.Error e)
         (Result.Success doc)
-          (match (JSON.Patch.apply-op doc (Box.peek (Array.unsafe-nth ops i)))
-            (Result.Error k) (Result.Error (JSON.PatchError.init i k))
-            (Result.Success next) (Result.Success next))))
+          (Result.map-error
+            (JSON.Patch.apply-op doc (Box.peek (Array.unsafe-nth ops i)))
+            &(fn [k] (JSON.PatchError.init i k)))))
 
     (private apply-ops)
     (hidden apply-ops)
