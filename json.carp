@@ -826,11 +826,14 @@ and `1.0` are one value, which is how RFC 6902 s4.6 compares numbers.")
           (JSON.Arr y)
             (and
               (Int.= (Array.length x) (Array.length y))
-              (let-do [ok true]
-                (for [i 0 (Array.length x)]
+              (let-do [ok true
+                       i 0
+                       n (Array.length x)]
+                (while-do (and ok (Int.< i n))
                   (unless (JSON.= (Box.peek (Array.unsafe-nth x i))
                                   (Box.peek (Array.unsafe-nth y i)))
-                    (set! ok false)))
+                    (set! ok false))
+                  (set! i (Int.inc i)))
                 ok))
           _ false)
       (JSON.Obj x)
@@ -839,14 +842,17 @@ and `1.0` are one value, which is how RFC 6902 s4.6 compares numbers.")
             (and (Int.= (Map.length x) (Map.length y))
                  (let-do [ks (Map.keys x)
                           vs (Map.vals x)
-                          ok true]
-                   (for [i 0 (Array.length &ks)]
+                          ok true
+                          i 0
+                          n (Array.length &ks)]
+                   (while-do (and ok (Int.< i n))
                      (match (Map.get-maybe y (Array.unsafe-nth &ks i))
                        (Maybe.Nothing) (set! ok false)
                        (Maybe.Just yv)
                          (unless (JSON.= (Box.peek (Array.unsafe-nth &vs i))
                                          (Box.peek &yv))
-                           (set! ok false))))
+                           (set! ok false)))
+                     (set! i (Int.inc i)))
                    ok))
           _ false)))
   (implements = JSON.=))
@@ -1286,10 +1292,13 @@ objects describing a sequence of changes to a document.")
     (defn proper-prefix? [a b]
       (and
         (Int.< (Array.length a) (Array.length b))
-        (let-do [ok true]
-          (for [i 0 (Array.length a)]
+        (let-do [ok true
+                 i 0
+                 n (Array.length a)]
+          (while-do (and ok (Int.< i n))
             (unless (String.= (Array.unsafe-nth a i) (Array.unsafe-nth b i))
-              (set! ok false)))
+              (set! ok false))
+            (set! i (Int.inc i)))
           ok)))
 
     (private apply-move)
