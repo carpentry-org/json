@@ -117,6 +117,19 @@
     (for [i 0 n] (set! s (fmt "%s%s1" &s (if (Int.= i 0) "" ","))))
     (fmt "{\"a\":[%s]}" &s)))
 
+(defn merge-eq? [target patch expected]
+  (=
+    &(JSON.merge-patch (parse-json target) &(parse-json patch))
+    &(parse-json expected)))
+
+(defn diff-eq? [a b expected]
+  (= &(JSON.merge-diff &(parse-json a) &(parse-json b)) &(parse-json expected)))
+
+(defn diff-roundtrips? [a b]
+  (let [ja (parse-json a)
+        jb (parse-json b)]
+    (= &(JSON.merge-patch @&ja &(JSON.merge-diff &ja &jb)) &jb)))
+
 (defn patch-err-index [src patch]
   @(JSON.PatchError.index
     &(Result.unsafe-from-error
@@ -2012,4 +2025,141 @@ break")) "str string with newline")
                            "[{\"op\":\"move\",\"from\":\"/a\",\"path\":\"/a/c\"}]")
       (Maybe.Just (JSON.PatchErrorKind.MoveIntoOwnChild)) true
       _ false)
-    "move may not, which RFC 6902 4.4 requires"))
+    "move may not, which RFC 6902 4.4 requires")
+
+  ; the RFC 7386 Appendix A table
+  (assert-true test
+    (merge-eq? "{\"a\":\"b\"}" "{\"a\":\"c\"}" "{\"a\":\"c\"}")
+    "a member present in both is replaced")
+
+  (assert-true test
+    (merge-eq? "{\"a\":\"b\"}" "{\"b\":\"c\"}" "{\"a\":\"b\",\"b\":\"c\"}")
+    "a member only in the patch is added")
+
+  (assert-true test
+    (merge-eq? "{\"a\":\"b\"}" "{\"a\":null}" "{}")
+    "a null member deletes the only key")
+
+  (assert-true test
+    (merge-eq? "{\"a\":\"b\",\"b\":\"c\"}" "{\"a\":null}" "{\"b\":\"c\"}")
+    "a null member deletes one of several keys")
+
+  (assert-true test
+    (merge-eq? "{\"a\":[\"b\"]}" "{\"a\":\"c\"}" "{\"a\":\"c\"}")
+    "an array member is replaced by a scalar")
+
+  (assert-true test
+    (merge-eq? "{\"a\":\"c\"}" "{\"a\":[\"b\"]}" "{\"a\":[\"b\"]}")
+    "a scalar member is replaced by an array")
+
+  (assert-true test
+    (merge-eq? "{\"a\":{\"b\":\"c\"}}"
+               "{\"a\":{\"b\":\"d\",\"c\":null}}"
+               "{\"a\":{\"b\":\"d\"}}")
+    "an object member merges and drops its null")
+
+  (assert-true test
+    (merge-eq? "{\"a\":[{\"b\":\"c\"}]}" "{\"a\":[1]}" "{\"a\":[1]}")
+    "arrays are replaced, not merged elementwise")
+
+  (assert-true test
+    (merge-eq? "[\"a\",\"b\"]" "[\"c\",\"d\"]" "[\"c\",\"d\"]")
+    "an array patch replaces an array target")
+
+  (assert-true test
+    (merge-eq? "{\"a\":\"b\"}" "[\"c\"]" "[\"c\"]")
+    "an array patch replaces an object target")
+
+  (assert-true test
+    (merge-eq? "{\"a\":\"foo\"}" "null" "null")
+    "a null patch replaces the whole target")
+
+  (assert-true test
+    (merge-eq? "{\"a\":\"foo\"}" "\"bar\"" "\"bar\"")
+    "a string patch replaces the whole target")
+
+  (assert-true test
+    (merge-eq? "{\"e\":null}" "{\"a\":1}" "{\"e\":null,\"a\":1}")
+    "a null already in the target survives an unrelated patch")
+
+  (assert-true test
+    (merge-eq? "[1,2]" "{\"a\":\"b\",\"c\":null}" "{\"a\":\"b\"}")
+    "an object patch treats an array target as empty")
+
+  (assert-true test
+    (merge-eq? "{}" "{\"a\":{\"bb\":{\"ccc\":null}}}" "{\"a\":{\"bb\":{}}}")
+    "a null under an absent key adds nothing")
+
+  (assert-true test
+    (merge-eq? "5" "{\"a\":1}" "{\"a\":1}")
+    "an object patch treats a scalar target as empty")
+
+  (assert-true test
+    (merge-eq? "{\"a\":1}" "{}" "{\"a\":1}")
+    "an empty patch is a no-op")
+
+  (assert-true test
+    (diff-eq? "{\"a\":1,\"b\":2}" "{\"a\":1,\"b\":3}" "{\"b\":3}")
+    "merge-diff omits unchanged members")
+
+  (assert-true test
+    (diff-eq? "{\"a\":1}" "{}" "{\"a\":null}")
+    "merge-diff emits null for a dropped member")
+
+  (assert-true test
+    (diff-eq? "{\"a\":{\"x\":1,\"y\":2}}"
+              "{\"a\":{\"x\":1,\"y\":9}}"
+              "{\"a\":{\"y\":9}}")
+    "merge-diff recurses into a changed object member")
+
+  (assert-true test
+    (diff-eq? "{\"a\":[1,2]}" "{\"a\":[1,3]}" "{\"a\":[1,3]}")
+    "merge-diff replaces a changed array whole")
+
+  (assert-true test
+    (diff-eq? "{\"a\":{\"b\":1}}" "{\"a\":{\"b\":1}}" "{}")
+    "merge-diff of equal documents is the empty patch")
+
+  (assert-true test
+    (diff-eq? "{\"a\":1}" "[1,2]" "[1,2]")
+    "merge-diff against a non-object is that document")
+
+  (assert-true test
+    (diff-roundtrips?
+      "{\"title\":\"Goodbye!\",\"author\":{\"givenName\":\"John\",\"familyName\":\"Doe\"},\"tags\":[\"example\",\"sample\"],\"content\":\"This will be unchanged\"}"
+      "{\"title\":\"Hello!\",\"author\":{\"givenName\":\"John\"},\"tags\":[\"example\"],\"content\":\"This will be unchanged\",\"phoneNumber\":\"+01-123-456-7890\"}")
+    "the RFC 7386 section 3 example round-trips")
+
+  (assert-true test
+    (diff-roundtrips?
+      "{\"a\":{},\"b\":[],\"c\":{\"d\":[1,{\"e\":2}]}}"
+      "{\"a\":{\"x\":1},\"b\":[1],\"c\":{\"d\":[1,{\"e\":3}]}}")
+    "empty objects and arrays round-trip")
+
+  (assert-true test
+    (diff-roundtrips? "{\"e\":null,\"x\":1}" "{\"e\":null,\"x\":2}")
+    "a null the two documents share round-trips")
+
+  (assert-true test
+    (diff-roundtrips? "{\"e\":null,\"x\":1}" "{\"x\":1}")
+    "dropping a null member round-trips")
+
+  (assert-true test
+    (diff-roundtrips? "{\"a\":{\"b\":{\"c\":1}}}" "{\"a\":{\"b\":{}}}")
+    "emptying a nested object round-trips")
+
+  (assert-true test
+    (diff-roundtrips? "5" "{\"a\":[1,{\"b\":null}]}")
+    "a scalar becoming an object round-trips")
+
+  (assert-true test
+    (diff-roundtrips? "{\"a\":1}" "[1,2]")
+    "an object becoming an array round-trips")
+
+  (assert-false test
+    (diff-roundtrips? "{}" "{\"a\":null}")
+    "a member newly set to null does not round-trip")
+
+  (assert-true test
+    (= &(JSON.delete-key (parse-json "{\"a\":1}") "b") &(parse-json "{\"a\":1}"))
+    "delete-key on an absent key leaves the object equal to itself"))

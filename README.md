@@ -135,6 +135,38 @@ rejected with `DepthLimitExceeded`, and a patch may insert at most
 `json-max-patch-nodes` nodes beyond the combined size of the document and the
 patch before `SizeLimitExceeded`. Neither binds on a hand-written patch.
 
+### JSON Merge Patch
+
+`JSON.merge-patch` implements [RFC 7386](https://www.rfc-editor.org/rfc/rfc7386),
+which is what an HTTP API almost always means by `application/merge-patch+json`.
+The patch is a document shaped like the target, and merging it replaces the
+members it mentions:
+
+```clojure
+(def doc (Result.unsafe-from-success (JSON.parse "{\"a\":1,\"b\":{\"c\":2}}")))
+(def patch (Result.unsafe-from-success (JSON.parse "{\"b\":{\"c\":3},\"d\":4}")))
+
+(JSON.merge-patch @&doc &patch)  ; => {"a":1,"b":{"c":3},"d":4}
+```
+
+A patch that is not an object replaces the target outright, a `null` member
+deletes that key, and a target that is not an object is treated as an empty
+one. Arrays are replaced whole, never merged element by element.
+
+`JSON.merge-diff` builds the smallest patch taking one document to another,
+emitting `null` for dropped members and omitting unchanged ones:
+
+```clojure
+(JSON.merge-diff &doc &other)      ; => {"b":{"c":3},"d":4}
+(JSON.merge-patch @&doc &(JSON.merge-diff &doc &other))  ; => other
+```
+
+Two things the format cannot express: setting a member to `null`, since that
+spelling already means delete, and reaching inside an array. So a `merge-diff`
+whose target introduces a `null` member does not survive the round trip, and
+an array edit costs the whole array. Reach for `JSON.Patch` when you need
+either.
+
 ### Type predicates
 
 ```clojure
