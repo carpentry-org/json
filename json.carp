@@ -745,10 +745,16 @@ If the value is not an object, returns it unchanged.")
       (JSON.Obj m) (let [bv (Box.init v)] (JSON.Obj (Map.put m k &bv)))
       other (do (ignore v) other)))
 
+  (private remove-member)
+  (hidden remove-member)
+  ; `Map.remove` decrements the length whether or not the key was there.
+  (defn remove-member [m k]
+    (let [present (Map.contains? &m k)] (if present (Map.remove m k) m)))
+
   (doc delete-key "removes a key from a JSON object.
 If the value is not an object or the key is absent, returns it unchanged.")
   (defn delete-key [j k]
-    (match j (JSON.Obj m) (JSON.Obj (Map.remove m k)) other other))
+    (match j (JSON.Obj m) (JSON.Obj (JSON.remove-member m k)) other other))
 
   (doc push "appends a value to a JSON array.
 If the value is not an array, returns it unchanged.")
@@ -1444,6 +1450,96 @@ atomic: on failure `doc` is untouched and the error names the operation index.
         _
           (Result.Error
             (JSON.PatchError.init -1 (JSON.PatchErrorKind.NotAnArray)))))))
+
+(defmodule JSON
+  (register merge-patch (Fn [JSON (Ref JSON)] JSON))
+  (doc merge-patch "applies an RFC 7386 JSON Merge Patch to `target`. A patch
+that is not an object replaces the target wholesale, and a target that is not
+an object is treated as an empty one. In an object patch a `null` member
+deletes that key, all others merge recursively, and arrays are replaced rather
+than merged, so a patch reaches neither into an array nor a `null` value.
+
+  (JSON.merge-patch doc &patch)")
+  (defn merge-patch [target patch]
+    (match-ref patch
+      (JSON.Obj p)
+        (let-do [m (match target
+                   (JSON.Obj tm) tm
+                   other (do (ignore other) (the (Map String (Box JSON)) {})))
+                 ks (Map.keys p)
+                 vs (Map.vals p)
+                 i 0
+                 n (Array.length &ks)]
+          (while-do (Int.< i n)
+            (let [k (Array.unsafe-nth &ks i)
+                  v (Box.peek (Array.unsafe-nth &vs i))]
+              (if (JSON.null? v)
+                (set! m (JSON.remove-member m k))
+                (let [old (match (Map.get-maybe &m k)
+                        (Maybe.Just bx) (Box.unbox bx)
+                        (Maybe.Nothing) (JSON.Null))
+                      bv (Box.init (JSON.merge-patch old v))]
+                  (set! m (Map.put m k &bv)))))
+            (set! i (Int.inc i)))
+          (JSON.Obj m))
+      _ (do (ignore target) @patch)))
+
+  (private deleted-members)
+  (hidden deleted-members)
+  (defn deleted-members [am bm]
+    (let-do [m (the (Map String (Box JSON)) {})
+             ks (Map.keys am)
+             null (Box.init (JSON.Null))
+             i 0
+             n (Array.length &ks)]
+      (while-do (Int.< i n)
+        (let [k (Array.unsafe-nth &ks i)]
+          (set! m (if (Map.contains? bm k) m (Map.put m k &null))))
+        (set! i (Int.inc i)))
+      m))
+
+  (register merge-diff (Fn [(Ref JSON) (Ref JSON)] JSON))
+
+  (private diff-member)
+  (hidden diff-member)
+  (register diff-member
+    (Fn
+      [(Ref (Map String (Box JSON))) (Ref String) (Ref JSON)]
+      (Maybe (Box JSON))))
+  (defn diff-member [am k bv]
+    (match (Map.get-maybe am k)
+      (Maybe.Nothing) (Maybe.Just (Box.init @bv))
+      (Maybe.Just av)
+        (if (JSON.= (Box.peek &av) bv)
+          (Maybe.Nothing)
+          (Maybe.Just (Box.init (JSON.merge-diff (Box.peek &av) bv))))))
+
+  (private diff-objs)
+  (hidden diff-objs)
+  (defn diff-objs [am bm]
+    (let-do [m (JSON.deleted-members am bm)
+             ks (Map.keys bm)
+             vs (Map.vals bm)
+             i 0
+             n (Array.length &ks)]
+      (while-do (Int.< i n)
+        (let [k (Array.unsafe-nth &ks i)]
+          (let [d (JSON.diff-member am k (Box.peek (Array.unsafe-nth &vs i)))]
+            (set! m
+                  (match d (Maybe.Nothing) m (Maybe.Just bx) (Map.put m k &bx)))))
+        (set! i (Int.inc i)))
+      (JSON.Obj m)))
+
+  (doc merge-diff "builds the smallest RFC 7386 merge patch taking `a` to `b`,
+emitting `null` for the members `b` drops and omitting the ones it leaves
+alone. A merge patch cannot set a member to `null`, so a `b` that introduces
+one does not survive the round trip through `merge-patch`.
+
+  (JSON.merge-patch @&a &(JSON.merge-diff &a &b))")
+  (defn merge-diff [a b]
+    (match-ref a
+      (JSON.Obj am) (match-ref b (JSON.Obj bm) (JSON.diff-objs am bm) _ @b)
+      _ @b)))
 
 (doc to-json "converts a Carp value to its JSON representation.")
 (definterface to-json (Fn [a] JSON))
