@@ -68,11 +68,12 @@
             </div>
             <div class="module">
                 <h1>
-                    JSON.ParseError
+                    JSON.PatchError
                 </h1>
                 <div class="module-description">
-                    <p>wraps a <code>ParseErrorKind</code> together with the byte position
-in the input where the error was detected.</p>
+                    <p>wraps a <code>PatchErrorKind</code> together with the index of the
+operation that failed, or <code>-1</code> when the patch document itself is not an
+array.</p>
 
                 </div>
                 <div class="binder">
@@ -85,13 +86,13 @@ in the input where the error was detected.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref JSON.ParseError a)] JSON.ParseError)
+                        (Fn [(Ref JSON.PatchError a)] JSON.PatchError)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>copies a <code>ParseError</code>.</p>
+                        <p>copies a <code>PatchError</code>.</p>
 
                     </p>
                 </div>
@@ -105,13 +106,33 @@ in the input where the error was detected.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [JSON.ParseError] ())
+                        (Fn [JSON.PatchError] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>deletes a <code>ParseError</code>. Should usually not be called manually.</p>
+                        <p>deletes a <code>PatchError</code>. Should usually not be called manually.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#index">
+                        <h3 id="index">
+                            index
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON.PatchError a)] (Ref Int a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>index</code> property of a <code>PatchError</code>.</p>
 
                     </p>
                 </div>
@@ -125,13 +146,13 @@ in the input where the error was detected.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Int, JSON.ParseErrorKind] JSON.ParseError)
+                        (Fn [Int, JSON.PatchErrorKind] JSON.PatchError)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>creates a <code>ParseError</code>.</p>
+                        <p>creates a <code>PatchError</code>.</p>
 
                     </p>
                 </div>
@@ -145,33 +166,13 @@ in the input where the error was detected.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref JSON.ParseError a)] (Ref JSON.ParseErrorKind a))
+                        (Fn [(Ref JSON.PatchError a)] (Ref JSON.PatchErrorKind a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>kind</code> property of a <code>ParseError</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#position">
-                        <h3 id="position">
-                            position
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref JSON.ParseError a)] (Ref Int a))
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>gets the <code>position</code> property of a <code>ParseError</code>.</p>
+                        <p>gets the <code>kind</code> property of a <code>PatchError</code>.</p>
 
                     </p>
                 </div>
@@ -185,13 +186,53 @@ in the input where the error was detected.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref JSON.ParseError a)] String)
+                        (Fn [(Ref JSON.PatchError a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>ParseError</code> to a string.</p>
+                        <p>converts a <code>PatchError</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-index">
+                        <h3 id="set-index">
+                            set-index
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [JSON.PatchError, Int] JSON.PatchError)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>index</code> property of a <code>PatchError</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-index!">
+                        <h3 id="set-index!">
+                            set-index!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON.PatchError a), Int] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>index</code> property of a <code>PatchError</code> in place.</p>
 
                     </p>
                 </div>
@@ -205,13 +246,13 @@ in the input where the error was detected.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [JSON.ParseError, JSON.ParseErrorKind] JSON.ParseError)
+                        (Fn [JSON.PatchError, JSON.PatchErrorKind] JSON.PatchError)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>kind</code> property of a <code>ParseError</code>.</p>
+                        <p>sets the <code>kind</code> property of a <code>PatchError</code>.</p>
 
                     </p>
                 </div>
@@ -225,53 +266,13 @@ in the input where the error was detected.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref JSON.ParseError a), JSON.ParseErrorKind] ())
+                        (Fn [(Ref JSON.PatchError a), JSON.PatchErrorKind] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>kind</code> property of a <code>ParseError</code> in place.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-position">
-                        <h3 id="set-position">
-                            set-position
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [JSON.ParseError, Int] JSON.ParseError)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>position</code> property of a <code>ParseError</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-position!">
-                        <h3 id="set-position!">
-                            set-position!
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref JSON.ParseError a), Int] ())
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>position</code> property of a <code>ParseError</code> in place.</p>
+                        <p>sets the <code>kind</code> property of a <code>PatchError</code> in place.</p>
 
                     </p>
                 </div>
@@ -285,13 +286,33 @@ in the input where the error was detected.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref JSON.ParseError a)] String)
+                        (Fn [(Ref JSON.PatchError a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>ParseError</code> to a string.</p>
+                        <p>converts a <code>PatchError</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-index">
+                        <h3 id="update-index">
+                            update-index
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [JSON.PatchError, (Ref (Fn [Int] Int a) b)] JSON.PatchError)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>index</code> property of a <code>JSON.PatchError</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
@@ -305,33 +326,13 @@ in the input where the error was detected.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [JSON.ParseError, (Ref (Fn [JSON.ParseErrorKind] JSON.ParseErrorKind a) b)] JSON.ParseError)
+                        (Fn [JSON.PatchError, (Ref (Fn [JSON.PatchErrorKind] JSON.PatchErrorKind a) b)] JSON.PatchError)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>kind</code> property of a <code>JSON.ParseError</code> using a function <code>f</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#update-position">
-                        <h3 id="update-position">
-                            update-position
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [JSON.ParseError, (Ref (Fn [Int] Int a) b)] JSON.ParseError)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>updates the <code>position</code> property of a <code>JSON.ParseError</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>kind</code> property of a <code>JSON.PatchError</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

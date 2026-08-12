@@ -36,6 +36,21 @@
                                         </a>
                                     </li>
                                     <li>
+                                        <a href="JSON.Patch.html">
+                                            Patch
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a href="JSON.PatchError.html">
+                                            PatchError
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a href="JSON.PatchErrorKind.html">
+                                            PatchErrorKind
+                                        </a>
+                                    </li>
+                                    <li>
                                         <a href="JSON.Pointer.html">
                                             Pointer
                                         </a>
@@ -59,6 +74,29 @@
                     <p>implements RFC 6901 JSON Pointer, addressing a value inside a
 JSON document with a string such as <code>/foo/0/bar</code>.</p>
 
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#array-index">
+                        <h3 id="array-index">
+                            array-index
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Maybe Int))
+                    </p>
+                    <pre class="args">
+                        (array-index s)
+                    </pre>
+                    <p class="doc">
+                        <p>parses a reference token as an array index.</p>
+<p>Returns <code>Nothing</code> unless the token is <code>0</code> or a positive integer without a
+leading zero, per RFC 6901. The end-of-array token <code>-</code> is not an index and
+also yields <code>Nothing</code>.</p>
+
+                    </p>
                 </div>
                 <div class="binder">
                     <a class="anchor" href="#escape">
@@ -98,11 +136,8 @@ into <code>~1</code> so it can be embedded in a pointer string.</p>
                     </pre>
                     <p class="doc">
                         <p>resolves an RFC 6901 JSON Pointer against <code>doc</code>, returning a copy
-of the addressed value or <code>Nothing</code>.</p>
-<p>The empty pointer addresses the whole document. Object keys match by string.
-An array token must be <code>0</code> or a positive integer without a leading zero; the
-<code>-</code> end-of-array token, out-of-range indices, indexing a non-container, and
-invalid pointers all yield <code>Nothing</code>.</p>
+of the addressed value or <code>Nothing</code>. The empty pointer addresses the whole
+document; array tokens follow <code>array-index</code>.</p>
 <p>(JSON.Pointer.get &amp;doc &quot;/foo/0&quot;)</p>
 
                     </p>
@@ -124,10 +159,9 @@ invalid pointers all yield <code>Nothing</code>.</p>
                     </pre>
                     <p class="doc">
                         <p>parses a pointer string into its decoded reference tokens.</p>
-<p>The empty string yields an empty token array, which addresses the whole
-document. A non-empty pointer must begin with <code>/</code>, otherwise <code>Nothing</code> is
-returned. Empty tokens are preserved: a trailing <code>/</code> addresses the
-empty-string key.</p>
+<p>The empty string yields an empty token array, addressing the whole document. A
+non-empty pointer must begin with <code>/</code> or <code>Nothing</code> is returned. Empty tokens
+are preserved, so a trailing <code>/</code> addresses the empty-string key.</p>
 
                     </p>
                 </div>

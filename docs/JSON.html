@@ -36,6 +36,21 @@
                                         </a>
                                     </li>
                                     <li>
+                                        <a href="JSON.Patch.html">
+                                            Patch
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a href="JSON.PatchError.html">
+                                            PatchError
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a href="JSON.PatchErrorKind.html">
+                                            PatchErrorKind
+                                        </a>
+                                    </li>
+                                    <li>
                                         <a href="JSON.Pointer.html">
                                             Pointer
                                         </a>
@@ -57,26 +72,31 @@
                 </h1>
                 <div class="module-description">
                     <p>is a JSON data type, parser, and serializer for Carp.</p>
-<h2>Installation</h2>
-<pre><code>(load &quot;git@github.com:carpentry-org/json@0.5.0&quot;)
-</code></pre>
-<h2>Usage</h2>
-<pre><code>; Parse JSON
-(match (JSON.parse &quot;{\&quot;name\&quot;: \&quot;carp\&quot;}&quot;)
-  (Result.Success j) (println* &amp;j)
-  (Result.Error e) (IO.errorln &amp;(JSON.parse-error-str &amp;e)))
+<p>A sum type with six variants: <code>Null</code>, <code>Bool</code>, <code>Num</code>, <code>Str</code>, <code>Arr</code>, and <code>Obj</code>.
+Arrays and objects hold <code>Box</code>ed values because the type is recursive.</p>
 
-; Build JSON
-(def j (JSON.obj [(JSON.entry @&quot;name&quot; (JSON.Str @&quot;carp&quot;))
-                  (JSON.entry @&quot;version&quot; (JSON.Num 1.0))]))
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#=">
+                        <h3 id="=">
+                            =
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a), (Ref JSON a)] Bool)
+                    </p>
+                    <pre class="args">
+                        (= a b)
+                    </pre>
+                    <p class="doc">
+                        <p>compares two JSON values structurally: arrays by length and order,
+objects by key set independent of member order. <code>Num</code> holds a <code>Double</code>, so <code>1</code>
+and <code>1.0</code> are one value, which is how RFC 6902 s4.6 compares numbers.</p>
 
-; Access values
-(JSON.get &amp;j &quot;name&quot;) ; =&gt; (Maybe.Just (JSON.Str &quot;carp&quot;))
-
-; Convert native values via to-json
-(to-json @&quot;hello&quot;) ; =&gt; (JSON.Str &quot;hello&quot;)
-</code></pre>
-
+                    </p>
                 </div>
                 <div class="binder">
                     <a class="anchor" href="#Arr">
@@ -222,6 +242,77 @@ in the input where the error was detected.</p>
                         <p>describes the cause of a parse failure.</p>
 <p>The associated <code>ParseError</code> carries this together with the byte position
 where the error was detected.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Patch">
+                        <h3 id="Patch">
+                            <a href="JSON.Patch.html">
+                                Patch
+                            </a>
+                        </h3>
+                    </a>
+                    <div class="description">
+                        module
+                    </div>
+                    <p class="sig">
+                        Module
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>implements RFC 6902 JSON Patch, a JSON array of operation
+objects describing a sequence of changes to a document.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#PatchError">
+                        <h3 id="PatchError">
+                            <a href="JSON.PatchError.html">
+                                PatchError
+                            </a>
+                        </h3>
+                    </a>
+                    <div class="description">
+                        module
+                    </div>
+                    <p class="sig">
+                        Module
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>wraps a <code>PatchErrorKind</code> together with the index of the
+operation that failed, or <code>-1</code> when the patch document itself is not an
+array.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#PatchErrorKind">
+                        <h3 id="PatchErrorKind">
+                            <a href="JSON.PatchErrorKind.html">
+                                PatchErrorKind
+                            </a>
+                        </h3>
+                    </a>
+                    <div class="description">
+                        module
+                    </div>
+                    <p class="sig">
+                        Module
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>describes why a patch could not be applied.</p>
+<p>The associated <code>PatchError</code> carries this together with the index of the
+operation that failed.</p>
 
                     </p>
                 </div>
@@ -579,6 +670,55 @@ elements are used as object keys. Returns a copy.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#merge-diff">
+                        <h3 id="merge-diff">
+                            merge-diff
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a), (Ref JSON a)] JSON)
+                    </p>
+                    <pre class="args">
+                        (merge-diff a b)
+                    </pre>
+                    <p class="doc">
+                        <p>builds the smallest RFC 7386 merge patch taking <code>a</code> to <code>b</code>,
+emitting <code>null</code> for the members <code>b</code> drops and omitting the ones it leaves
+alone. A merge patch cannot set a member to <code>null</code>, so a <code>b</code> that introduces
+one does not survive the round trip through <code>merge-patch</code>.</p>
+<p>(JSON.merge-patch @&amp;a &amp;(JSON.merge-diff &amp;a &amp;b))</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#merge-patch">
+                        <h3 id="merge-patch">
+                            merge-patch
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [JSON, (Ref JSON a)] JSON)
+                    </p>
+                    <pre class="args">
+                        (merge-patch target patch)
+                    </pre>
+                    <p class="doc">
+                        <p>applies an RFC 7386 JSON Merge Patch to <code>target</code>. A patch
+that is not an object replaces the target wholesale, and a target that is not
+an object is treated as an empty one. In an object patch a <code>null</code> member
+deletes that key, all others merge recursively, and arrays are replaced rather
+than merged, so a patch reaches neither into an array nor a <code>null</code> value.</p>
+<p>(JSON.merge-patch doc &amp;patch)</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#nth">
                         <h3 id="nth">
                             nth
@@ -747,6 +887,48 @@ including the byte position where the error was detected.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#patch-error-kind-str">
+                        <h3 id="patch-error-kind-str">
+                            patch-error-kind-str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON.PatchErrorKind a)] String)
+                    </p>
+                    <pre class="args">
+                        (patch-error-kind-str k)
+                    </pre>
+                    <p class="doc">
+                        <p>formats a <code>PatchErrorKind</code> as a human-readable
+message, without the operation index.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#patch-error-str">
+                        <h3 id="patch-error-str">
+                            patch-error-str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON.PatchError a)] String)
+                    </p>
+                    <pre class="args">
+                        (patch-error-str e)
+                    </pre>
+                    <p class="doc">
+                        <p>formats a <code>PatchError</code> as a human-readable message
+including the index of the operation that failed.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#pretty-str">
                         <h3 id="pretty-str">
                             pretty-str
@@ -847,10 +1029,9 @@ message.</p>
                         (set-in j keys v)
                     </pre>
                     <p class="doc">
-                        <p>sets a value at a nested path through objects and arrays.</p>
-<p>Path elements that parse as non-negative integers index into arrays;
-all other elements are used as object keys. Missing intermediate object
-keys are created automatically.</p>
+                        <p>sets a value at a nested path, creating missing intermediate
+object keys. Path elements that parse as non-negative integers index into
+arrays, all others are object keys.</p>
 <p>(JSON.set-in j &amp;[@&quot;users&quot; @&quot;0&quot; @&quot;name&quot;] (JSON.Str @&quot;Alice&quot;))</p>
 
                     </p>
@@ -914,11 +1095,9 @@ unchanged.</p>
                         (str j)
                     </pre>
                     <p class="doc">
-                        <p>serializes a JSON value to its string representation.</p>
-<p>Returns a <code>(Result String SerializeError)</code>. Errors are returned only when
-a <code>JSON.Num</code> contains NaN or infinity, neither of which is representable
-in JSON.</p>
-<p>Produces compact output with no extra whitespace.</p>
+                        <p>serializes a JSON value to a compact string with no extra
+whitespace. Returns a <code>(Result String SerializeError)</code>, which errors only on a
+<code>JSON.Num</code> holding NaN or infinity, neither representable in JSON.</p>
 
                     </p>
                 </div>
@@ -958,13 +1137,10 @@ in JSON.</p>
                         (update-in j keys f)
                     </pre>
                     <p class="doc">
-                        <p>applies a function to the value at a nested path.</p>
-<p>Path elements that parse as non-negative integers index into arrays.
-If the path does not resolve to a value, returns the input unchanged.</p>
-<p>(JSON.update-in j &amp;[@&quot;count&quot;] (fn [n]
-(match (JSON.as-num &amp;n)
-(Maybe.Just x) (JSON.Num (+ x 1.0))
-(Maybe.Nothing) n)))</p>
+                        <p>applies a function to the value at a nested path, indexing
+arrays as <code>set-in</code> does. Returns the input unchanged if the path does not
+resolve to a value.</p>
+<p>(JSON.update-in j &amp;[@&quot;count&quot;] (fn [n] (JSON.Num 1.0)))</p>
 
                     </p>
                 </div>

@@ -1,0 +1,104 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="https://github.com/carpentry-org/json">
+                    <img src="">
+                </a>
+                <div class="title">
+                    json
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <details>
+                                <summary>
+                                    <a href="JSON.html">
+                                        JSON
+                                    </a>
+                                </summary>
+                                <ul>
+                                    <li>
+                                        <a href="JSON.ParseError.html">
+                                            ParseError
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a href="JSON.ParseErrorKind.html">
+                                            ParseErrorKind
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a href="JSON.Patch.html">
+                                            Patch
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a href="JSON.PatchError.html">
+                                            PatchError
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a href="JSON.PatchErrorKind.html">
+                                            PatchErrorKind
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a href="JSON.Pointer.html">
+                                            Pointer
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a href="JSON.SerializeError.html">
+                                            SerializeError
+                                        </a>
+                                    </li>
+                                </ul>
+                            </details>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="module">
+                <h1>
+                    JSON.Patch
+                </h1>
+                <div class="module-description">
+                    <p>implements RFC 6902 JSON Patch, a JSON array of operation
+objects describing a sequence of changes to a document.</p>
+
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#apply">
+                        <h3 id="apply">
+                            apply
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a), (Ref JSON b)] (Result JSON JSON.PatchError))
+                    </p>
+                    <pre class="args">
+                        (apply doc patch)
+                    </pre>
+                    <p class="doc">
+                        <p>applies an RFC 6902 JSON Patch to <code>doc</code>, returning a
+<code>(Result JSON PatchError)</code>. Operations are applied in order and the patch is
+atomic: on failure <code>doc</code> is untouched and the error names the operation index.</p>
+<p>(JSON.Patch.apply &amp;doc &amp;patch)</p>
+
+                    </p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>
