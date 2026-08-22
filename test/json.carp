@@ -135,6 +135,55 @@
     &(Result.unsafe-from-error
       (JSON.Patch.apply &(parse-json src) &(parse-json patch)))))
 
+(defn patch-diff-eq? [a b expected]
+  (= &(JSON.Patch.diff &(parse-json a) &(parse-json b)) &(parse-json expected)))
+
+(defn patch-diff-roundtrips? [a b]
+  (let [ja (parse-json a)
+        jb (parse-json b)]
+    (match (JSON.Patch.apply &ja &(JSON.Patch.diff &ja &jb))
+      (Result.Success r) (= &r &jb)
+      (Result.Error e) (do (ignore e) false))))
+
+(defn diff-corpus []
+  [@"null"
+   @"1"
+   @"\"x\""
+   @"[]"
+   @"{}"
+   @"[1,2,3,4]"
+   @"[1]"
+   @"[[1],[2],[3]]"
+   @"[{\"a\":1},{\"b\":[1,2]},3]"
+   @"[{\"a\":2},{\"b\":[1,2,3]},3,4]"
+   @"[null,null]"
+   @"{\"a\":1}"
+   @"{\"a\":null}"
+   @"{\"a\":1,\"b\":2}"
+   @"{\"a\":{\"b\":{\"c\":1}}}"
+   @"{\"a\":{\"b\":{}}}"
+   @"{\"a\":[1,2,3]}"
+   @"{\"a\":[3,2,1]}"
+   @"{\"a/b\":1}"
+   @"{\"m~n\":2}"
+   @"{\"/\":1,\"~\":2}"
+   @"{\"\":1}"
+   @"{\"-\":1,\"0\":2}"
+   @"{\"x\":{\"y/z\":[{\"~\":null},1]}}"])
+
+(defn all-pairs-diff-roundtrip? []
+  (let-do [docs (diff-corpus)
+           ok true
+           n (Array.length &docs)]
+    (for [i 0 n]
+      (for [j 0 n]
+        (let [a (Array.unsafe-nth &docs i)
+              b (Array.unsafe-nth &docs j)]
+          (unless-do (patch-diff-roundtrips? a b)
+            (set! ok false)
+            (IO.println &(fmt "diff does not round-trip: %s -> %s" a b))))))
+    ok))
+
 (def rfc-doc
   (JSON.obj
     [(JSON.entry @"foo"
@@ -2026,6 +2075,88 @@ break")) "str string with newline")
       (Maybe.Just (JSON.PatchErrorKind.MoveIntoOwnChild)) true
       _ false)
     "move may not, which RFC 6902 4.4 requires")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a\":1}" "{\"a\":1}" "[]")
+    "diff of equal documents is the empty patch")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a\":1}"
+                    "{\"a\":2}"
+                    "[{\"op\":\"replace\",\"path\":\"/a\",\"value\":2}]")
+    "diff replaces a changed member")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a\":1}"
+                    "{\"a\":1,\"b\":2}"
+                    "[{\"op\":\"add\",\"path\":\"/b\",\"value\":2}]")
+    "diff adds a member only the target has")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a\":1,\"b\":2}"
+                    "{\"a\":1}"
+                    "[{\"op\":\"remove\",\"path\":\"/b\"}]")
+    "diff removes a member only the source has")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a\":{\"b\":1,\"c\":2}}"
+                    "{\"a\":{\"b\":9,\"c\":2}}"
+                    "[{\"op\":\"replace\",\"path\":\"/a/b\",\"value\":9}]")
+    "diff points at the changed leaf instead of replacing its object")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a/b\":1}"
+                    "{\"a/b\":9}"
+                    "[{\"op\":\"replace\",\"path\":\"/a~1b\",\"value\":9}]")
+    "diff escapes a / in a key as ~1")
+
+  (assert-true test
+    (patch-diff-eq? "{\"m~n\":1}"
+                    "{}"
+                    "[{\"op\":\"remove\",\"path\":\"/m~0n\"}]")
+    "diff escapes a ~ in a key as ~0")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a\":1}"
+                    "[1,2]"
+                    "[{\"op\":\"replace\",\"path\":\"\",\"value\":[1,2]}]")
+    "documents of different kinds diff to a whole-document replace")
+
+  (assert-true test
+    (patch-diff-eq? "1" "2" "[{\"op\":\"replace\",\"path\":\"\",\"value\":2}]")
+    "two scalars diff to a whole-document replace")
+
+  (assert-true test
+    (patch-diff-eq? "[1]"
+                    "[1,2,3]"
+                    "[{\"op\":\"add\",\"path\":\"/1\",\"value\":2},{\"op\":\"add\",\"path\":\"/2\",\"value\":3}]")
+    "diff grows an array one index at a time")
+
+  (assert-true test
+    (patch-diff-eq? "[1,2,3,4]"
+                    "[1]"
+                    "[{\"op\":\"remove\",\"path\":\"/3\"},{\"op\":\"remove\",\"path\":\"/2\"},{\"op\":\"remove\",\"path\":\"/1\"}]")
+    "diff shrinks an array in descending index order")
+
+  (assert-true test
+    (patch-diff-eq? "[{\"a\":1},{\"b\":2}]"
+                    "[{\"a\":9},{\"b\":2}]"
+                    "[{\"op\":\"replace\",\"path\":\"/0/a\",\"value\":9}]")
+    "diff recurses into array elements")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a\":1}"
+                    "{\"a\":null}"
+                    "[{\"op\":\"replace\",\"path\":\"/a\",\"value\":null}]")
+    "a member set to null is a replace, not a remove")
+
+  (assert-true test
+    (patch-diff-roundtrips? "{}" "{\"a\":null}")
+    "a member newly set to null round-trips, which merge-diff cannot")
+
+  (assert-true test
+    (all-pairs-diff-roundtrip?)
+    "applying a diff to its source yields the target for every pair of a corpus")
 
   ; the RFC 7386 Appendix A table
   (assert-true test

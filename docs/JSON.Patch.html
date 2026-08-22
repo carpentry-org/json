@@ -98,6 +98,33 @@ atomic: on failure <code>doc</code> is untouched and the error names the operati
 
                     </p>
                 </div>
+                <div class="binder">
+                    <a class="anchor" href="#diff">
+                        <h3 id="diff">
+                            diff
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JSON a), (Ref JSON a)] JSON)
+                    </p>
+                    <pre class="args">
+                        (diff a b)
+                    </pre>
+                    <p class="doc">
+                        <p>builds an RFC 6902 patch taking <code>a</code> to <code>b</code>, the inverse of
+<code>apply</code>: applying the result to <code>a</code> returns <code>b</code> for any two documents.</p>
+<p>Objects are compared member by member, emitting <code>add</code> for a key only in <code>b</code>,
+<code>remove</code> for a key only in <code>a</code>, and nothing for members the two share. Arrays
+are compared element by element, growing with <code>add</code> and shrinking with
+<code>remove</code>. Everything else that differs becomes a <code>replace</code>, so two documents
+of different kinds diff to one <code>replace</code> of the whole document.</p>
+<p>(JSON.Patch.apply &amp;a &amp;(JSON.Patch.diff &amp;a &amp;b))</p>
+
+                    </p>
+                </div>
             </div>
         </div>
     </body>
