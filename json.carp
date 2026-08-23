@@ -1487,16 +1487,13 @@ than merged, so a patch reaches neither into an array nor a `null` value.
   (private deleted-members)
   (hidden deleted-members)
   (defn deleted-members [am bm]
-    (let-do [m (the (Map String (Box JSON)) {})
-             ks (Map.keys am)
-             null (Box.init (JSON.Null))
-             i 0
-             n (Array.length &ks)]
-      (while-do (Int.< i n)
-        (let [k (Array.unsafe-nth &ks i)]
-          (set! m (if (Map.contains? bm k) m (Map.put m k &null))))
-        (set! i (Int.inc i)))
-      m))
+    (Map.kv-reduce
+      &(fn [m k _]
+        (if (Map.contains? bm k)
+          m
+          (let [null (Box.init (JSON.Null))] (Map.put m k &null))))
+      (the (Map String (Box JSON)) {})
+      am))
 
   (private diff-map)
   (hidden diff-map)
@@ -1526,18 +1523,13 @@ than merged, so a patch reaches neither into an array nor a `null` value.
               (Maybe.Just (Box.init @bv))))))
 
   (defn diff-map [am bm]
-    (let-do [m (JSON.deleted-members am bm)
-             ks (Map.keys bm)
-             vs (Map.vals bm)
-             i 0
-             n (Array.length &ks)]
-      (while-do (Int.< i n)
-        (let [k (Array.unsafe-nth &ks i)]
-          (let [d (JSON.diff-member am k (Box.peek (Array.unsafe-nth &vs i)))]
-            (set! m
-                  (match d (Maybe.Nothing) m (Maybe.Just bx) (Map.put m k &bx)))))
-        (set! i (Int.inc i)))
-      m))
+    (Map.kv-reduce
+      &(fn [m k bv]
+        (match (JSON.diff-member am k (Box.peek bv))
+          (Maybe.Nothing) m
+          (Maybe.Just bx) (Map.put m k &bx)))
+      (JSON.deleted-members am bm)
+      bm))
 
   (doc merge-diff "builds the smallest RFC 7386 merge patch taking `a` to `b`,
 emitting `null` for the members `b` drops and omitting the ones it leaves
