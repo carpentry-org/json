@@ -135,6 +135,29 @@ rejected with `DepthLimitExceeded`, and a patch may insert at most
 `json-max-patch-nodes` nodes beyond the combined size of the document and the
 patch before `SizeLimitExceeded`. Neither binds on a hand-written patch.
 
+`JSON.Patch.diff` goes the other way, building a patch that takes one document
+to another:
+
+```clojure
+(def a (Result.unsafe-from-success (JSON.parse "{\"a\":1,\"b\":{\"c\":2}}")))
+(def b (Result.unsafe-from-success (JSON.parse "{\"a\":1,\"b\":{\"c\":3}}")))
+
+(JSON.Patch.diff &a &b)  ; => [{"op":"replace","path":"/b/c","value":3}]
+(JSON.Patch.apply &a &(JSON.Patch.diff &a &b))  ; => (Success b)
+```
+
+Objects are compared member by member and arrays element by element, so a
+change deep inside a document costs one operation addressed by pointer rather
+than a copy of the value enclosing it. A key only in the target becomes an
+`add`, a key only in the source a `remove`, and anything else that differs a
+`replace`, including two documents of different kinds, which replace the whole
+document at the empty pointer. Keys are escaped, and a shrinking array is
+trimmed in descending index order so that every pointer still names the
+element it did before the trim.
+
+Every operation `diff` emits is one `apply` accepts, so the round trip holds
+for any pair of documents, `null` members and array edits included.
+
 ### JSON Merge Patch
 
 `JSON.merge-patch` implements [RFC 7386](https://www.rfc-editor.org/rfc/rfc7386),
