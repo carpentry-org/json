@@ -169,7 +169,33 @@
    @"{\"/\":1,\"~\":2}"
    @"{\"\":1}"
    @"{\"-\":1,\"0\":2}"
-   @"{\"x\":{\"y/z\":[{\"~\":null},1]}}"])
+   @"{\"x\":{\"y/z\":[{\"~\":null},1]}}"
+   @"true"
+   @"false"
+   @"\"\""
+   @"{\"a\":[]}"
+   @"{\"a\":{}}"
+   @"{\"a\":[[]]}"
+   @"{\"a\":[{}]}"
+   @"{\"a\":{\"b\":[]}}"
+   @"{\"a\":true}"
+   @"{\"b\":2,\"a\":1}"
+   @"[[[[1]]]]"
+   @"[[[[2]]]]"
+   @"[[[[]]]]"
+   @"[[[[1],2]]]"
+   @"[1,[2,[3,[4]]]]"
+   @"[1,[2,[3,[5]]]]"
+   @"[0,1,2]"
+   @"[0,1,2,3,4,5]"
+   @"{\"d\":{\"d\":{\"d\":{\"d\":{\"v\":1}}}}}"
+   @"{\"d\":{\"d\":{\"d\":{\"d\":{\"v\":2}}}}}"
+   @"{\"d\":{\"d\":{\"d\":{\"d\":{}}}}}"
+   @"{\"d\":{\"d\":{\"d\":{\"d\":{\"v\":1,\"w\":2}}}}}"
+   @"{\"a\":1,\"b\":{\"c\":[1,2,{\"d\":null}]}}"
+   @"{\"a\":1,\"b\":{\"c\":[1,2,{\"d\":3}]}}"
+   @"{\"x\":{\"y/z\":[{\"~\":null},2]}}"
+   @"{\"a\":{\"b\":{\"c\":2}}}"])
 
 (defn all-pairs-diff-roundtrip? []
   (let-do [docs (diff-corpus)
@@ -183,6 +209,24 @@
             (set! ok false)
             (IO.println &(fmt "diff does not round-trip: %s -> %s" a b))))))
     ok))
+
+(defn self-diffs-empty? []
+  (let-do [docs (diff-corpus)
+           ok true
+           n (Array.length &docs)]
+    (for [i 0 n]
+      (let [d (Array.unsafe-nth &docs i)]
+        (unless-do (patch-diff-eq? d d "[]")
+          (set! ok false)
+          (IO.println &(fmt "diff of %s with itself is not empty" d)))))
+    ok))
+
+(defn deep-json [depth v]
+  (let-do [pre (the (Array String) [])
+           post (the (Array String) [])]
+    (for [i 0 depth]
+      (do (Array.push-back! &pre @"{\"n\":") (Array.push-back! &post @"}")))
+    (fmt "%s%d%s" &(String.concat &pre) v &(String.concat &post))))
 
 (def rfc-doc
   (JSON.obj
@@ -2157,6 +2201,52 @@ break")) "str string with newline")
   (assert-true test
     (all-pairs-diff-roundtrip?)
     "applying a diff to its source yields the target for every pair of a corpus")
+
+  (assert-true test
+    (self-diffs-empty?)
+    "a document diffs to the empty patch against itself, at every kind")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a\":{\"b\":1}}"
+                    "{\"a\":{}}"
+                    "[{\"op\":\"remove\",\"path\":\"/a/b\"}]")
+    "a member emptied to {} loses its keys one at a time")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a\":[1]}"
+                    "{\"a\":[]}"
+                    "[{\"op\":\"remove\",\"path\":\"/a/0\"}]")
+    "a member emptied to [] loses its elements one at a time")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a\":1}"
+                    "{\"a\":{}}"
+                    "[{\"op\":\"replace\",\"path\":\"/a\",\"value\":{}}]")
+    "a scalar member becoming {} is a replace")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a\":{}}"
+                    "{\"a\":[]}"
+                    "[{\"op\":\"replace\",\"path\":\"/a\",\"value\":[]}]")
+    "an empty object member becoming [] is a replace")
+
+  (assert-true test
+    (patch-diff-eq? "{\"a\":{},\"b\":1}"
+                    "{\"a\":{},\"b\":2}"
+                    "[{\"op\":\"replace\",\"path\":\"/b\",\"value\":2}]")
+    "a member that is an empty object in both emits nothing")
+
+  (assert-true test
+    (patch-diff-eq? &(deep-json 120 1)
+                    &(deep-json 120 2)
+                    &(fmt
+                      "[{\"op\":\"replace\",\"path\":\"%s\",\"value\":2}]"
+                      &(String.repeat 120 "/n")))
+    "diff points at the changed leaf of a deeply nested document")
+
+  (assert-true test
+    (patch-diff-roundtrips? &(deep-json 120 1) &(deep-json 120 2))
+    "a deep diff round-trips through apply")
 
   ; the RFC 7386 Appendix A table
   (assert-true test
