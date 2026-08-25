@@ -2125,6 +2125,48 @@ break")) "str string with newline")
     "merge-diff against a non-object is that document")
 
   (assert-true test
+    (diff-eq? "{\"a\":{},\"b\":1}" "{\"a\":{},\"b\":2}" "{\"b\":2}")
+    "merge-diff omits a member that is an empty object in both documents")
+
+  (assert-true test
+    (diff-eq? "{\"a\":{\"b\":1}}" "{\"a\":{}}" "{\"a\":{\"b\":null}}")
+    "merge-diff empties a member with a null, not with an empty object")
+
+  (assert-true test
+    (diff-eq? "{\"a\":{}}" "{\"a\":{\"b\":1}}" "{\"a\":{\"b\":1}}")
+    "merge-diff fills an empty object member")
+
+  (assert-true test
+    (diff-eq? "{\"a\":[]}" "{\"a\":{}}" "{\"a\":{}}")
+    "merge-diff emits an empty object when an array becomes one")
+
+  (assert-true test
+    (diff-eq? "{\"a\":{}}" "{\"a\":[]}" "{\"a\":[]}")
+    "merge-diff replaces an empty object member with an array")
+
+  (assert-true test
+    (diff-eq?
+      "{\"a\":{\"b\":{\"c\":1}},\"z\":{\"y\":{\"x\":2}}}"
+      "{\"a\":{\"b\":{\"c\":9}},\"z\":{\"y\":{\"x\":2}}}"
+      "{\"a\":{\"b\":{\"c\":9}}}")
+    "merge-diff omits a deep object member whose whole subtree is unchanged")
+
+  (assert-true test
+    (diff-eq? "{\"a\":{\"b\":null,\"c\":1}}"
+              "{\"a\":{\"b\":null,\"c\":2}}"
+              "{\"a\":{\"c\":2}}")
+    "merge-diff omits a null-valued member the two documents share")
+
+  (assert-true test
+    (diff-eq? "{\"a\":{\"b\":null}}" "{\"a\":{\"b\":1}}" "{\"a\":{\"b\":1}}")
+    "merge-diff replaces a null-valued member")
+
+  (assert-true test
+    (diff-roundtrips? "{\"a\":{\"b\":{}},\"c\":1}"
+                      "{\"a\":{\"b\":{},\"d\":2},\"c\":1}")
+    "an untouched nested empty object round-trips")
+
+  (assert-true test
     (diff-roundtrips?
       "{\"title\":\"Goodbye!\",\"author\":{\"givenName\":\"John\",\"familyName\":\"Doe\"},\"tags\":[\"example\",\"sample\"],\"content\":\"This will be unchanged\"}"
       "{\"title\":\"Hello!\",\"author\":{\"givenName\":\"John\"},\"tags\":[\"example\"],\"content\":\"This will be unchanged\",\"phoneNumber\":\"+01-123-456-7890\"}")
