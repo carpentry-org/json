@@ -511,7 +511,8 @@ message.")
     (let-do [decimal (Maybe.Nothing)
              scientific (Maybe.Nothing)]
       (for [precision 1 18]
-        (let [candidate (Double.format &(fmt "%%.%dg" precision) n)]
+        ; `%%` escapes, so the built string carries exactly one directive
+        (let [candidate (Double.unsafe-format &(fmt "%%.%dg" precision) n)]
           (when-do (num-round-trips? &candidate n)
             (if (String.contains? &candidate \e)
               (when (Maybe.nothing? &scientific)
@@ -523,7 +524,7 @@ message.")
         (Maybe.Nothing)
           (match scientific
             (Maybe.Just s) s
-            (Maybe.Nothing) (Double.format "%.17g" n)))))
+            (Maybe.Nothing) (Double.unsafe-format "%.17g" n)))))
 
   (private serialize-into!)
   (hidden serialize-into!)
