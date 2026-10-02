@@ -5,7 +5,7 @@ A JSON parser and serializer for Carp.
 ## Installation
 
 ```clojure
-(load "git@github.com:carpentry-org/json@0.6.0")
+(load "git@github.com:carpentry-org/json@0.7.0")
 ```
 
 ## Usage
