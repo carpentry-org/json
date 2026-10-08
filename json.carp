@@ -700,29 +700,49 @@ array or the index is out of bounds. Returns a copy of the value.")
           (Maybe.Nothing) (Maybe.Nothing))
       _ (Maybe.Nothing)))
 
-  (private get-step)
-  (hidden get-step)
-  (defn get-step [j k]
-    (match-ref j
-      (JSON.Arr _)
-        (match (Int.from-string k)
-          (Maybe.Just i) (if (>= i 0) (JSON.nth j i) (Maybe.Nothing))
-          (Maybe.Nothing) (Maybe.Nothing))
-      _ (JSON.get j k)))
+  (hidden bucket-for)
+  (defn bucket-for [m k]
+    (Array.unsafe-nth (Map.buckets m)
+                      (Int.positive-mod (hash k) @(Map.n-buckets m))))
+
+  (hidden member-at)
+  (defn member-at [b i]
+    (Box.peek (Pair.b (Array.unsafe-nth (Bucket.entries b) i))))
+
+  (hidden get-in-at)
+  (register get-in-at
+    (Fn
+      [(Ref JSON) (Ref (Array String)) Int (Ref (Fn [(Ref String)] (Maybe Int)))]
+      (Maybe JSON)))
+  (defn get-in-at [j keys idx index-of]
+    (if (>= idx (Array.length keys))
+      (Maybe.Just @j)
+      (let [k (Array.unsafe-nth keys idx)]
+        (match-ref j
+          (JSON.Obj m)
+            (let [b (JSON.bucket-for m k)
+                  i (Bucket.find b k)]
+              (if (Int.< i 0)
+                (Maybe.Nothing)
+                (JSON.get-in-at (JSON.member-at b i) keys (Int.inc idx) index-of)))
+          (JSON.Arr a)
+            (match (~index-of k)
+              (Maybe.Just i)
+                (if (and (>= i 0) (< i (Array.length a)))
+                  (JSON.get-in-at (Box.peek (Array.unsafe-nth a i))
+                                  keys
+                                  (Int.inc idx)
+                                  index-of)
+                  (Maybe.Nothing))
+              (Maybe.Nothing) (Maybe.Nothing))
+          _ (Maybe.Nothing)))))
 
   (doc get-in "performs nested lookup through objects and arrays. String path
 elements that parse as non-negative integers index into arrays; all other
 elements are used as object keys. Returns a copy.
 
   (JSON.get-in &j &[@\"data\" @\"users\" @\"0\" @\"name\"])")
-  (defn get-in [j keys]
-    (Array.reduce
-      &(fn [mj k]
-        (match mj
-          (Maybe.Nothing) (Maybe.Nothing)
-          (Maybe.Just j) (JSON.get-step &j k)))
-      (Maybe.Just @j)
-      keys))
+  (defn get-in [j keys] (JSON.get-in-at j keys 0 &Int.from-string))
 
   (doc entry "creates a key-value pair for use with `obj`. The value is
 automatically boxed.")
@@ -942,17 +962,6 @@ are preserved, so a trailing `/` addresses the empty-string key.")
                   (Array.push-back out (unescape (Array.unsafe-nth &parts i)))))
           (Maybe.Just out))))
 
-    (private step)
-    (hidden step)
-    (defn step [j tok]
-      (match-ref j
-        (JSON.Obj _) (JSON.get j tok)
-        (JSON.Arr _)
-          (match (array-index tok)
-            (Maybe.Just i) (JSON.nth j i)
-            (Maybe.Nothing) (Maybe.Nothing))
-        _ (Maybe.Nothing)))
-
     (doc get "resolves an RFC 6901 JSON Pointer against `doc`, returning a copy
 of the addressed value or `Nothing`. The empty pointer addresses the whole
 document; array tokens follow `array-index`.
@@ -961,14 +970,7 @@ document; array tokens follow `array-index`.
     (defn get [doc pointer]
       (match (parse pointer)
         (Maybe.Nothing) (Maybe.Nothing)
-        (Maybe.Just tokens)
-          (Array.reduce
-            &(fn [acc tok]
-              (match acc
-                (Maybe.Nothing) (Maybe.Nothing)
-                (Maybe.Just j) (JSON.Pointer.step &j tok)))
-            (Maybe.Just @doc)
-            &tokens)))))
+        (Maybe.Just tokens) (JSON.get-in-at doc &tokens 0 &array-index)))))
 
 (defmodule JSON
   (doc PatchErrorKind "describes why a patch could not be applied.
@@ -1497,31 +1499,17 @@ atomic: on failure `doc` is untouched and the error names the operation index.
         ops
         am))
 
-    (private bucket-for)
-    (hidden bucket-for)
-    (defn bucket-for [m k]
-      (Array.unsafe-nth (Map.buckets m)
-                        (Int.positive-mod (hash k) @(Map.n-buckets m))))
-
-    (private member-at)
-    (hidden member-at)
-    (defn member-at [b i]
-      (Box.peek (Pair.b (Array.unsafe-nth (Bucket.entries b) i))))
-
     (private diff-members)
     (hidden diff-members)
     (defn diff-members [ops path am bm]
       (Map.kv-reduce
         &(fn [out k bv]
           (let [p (JSON.Patch.member-path path k)
-                b (JSON.Patch.bucket-for am k)
+                b (JSON.bucket-for am k)
                 i (Bucket.find b k)]
             (if (Int.< i 0)
               (JSON.Patch.push-op out "add" &p @(Box.peek bv))
-              (JSON.Patch.diff-into out
-                                    &p
-                                    (JSON.Patch.member-at b i)
-                                    (Box.peek bv)))))
+              (JSON.Patch.diff-into out &p (JSON.member-at b i) (Box.peek bv)))))
         (JSON.Patch.removed-members ops path am bm)
         bm))
 
