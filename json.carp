@@ -1497,31 +1497,18 @@ atomic: on failure `doc` is untouched and the error names the operation index.
         ops
         am))
 
-    (private bucket-for)
-    (hidden bucket-for)
-    (defn bucket-for [m k]
-      (Array.unsafe-nth (Map.buckets m)
-                        (Int.positive-mod (hash k) @(Map.n-buckets m))))
-
-    (private member-at)
-    (hidden member-at)
-    (defn member-at [b i]
-      (Box.peek (Pair.b (Array.unsafe-nth (Bucket.entries b) i))))
-
     (private diff-members)
     (hidden diff-members)
     (defn diff-members [ops path am bm]
       (Map.kv-reduce
         &(fn [out k bv]
-          (let [p (JSON.Patch.member-path path k)
-                b (JSON.Patch.bucket-for am k)
-                i (Bucket.find b k)]
-            (if (Int.< i 0)
-              (JSON.Patch.push-op out "add" &p @(Box.peek bv))
+          (let [p (JSON.Patch.member-path path k)]
+            (if (Map.contains? am k)
               (JSON.Patch.diff-into out
                                     &p
-                                    (JSON.Patch.member-at b i)
-                                    (Box.peek bv)))))
+                                    (Map.value-ref! am k &Box.peek &(JSON.Null))
+                                    (Box.peek bv))
+              (JSON.Patch.push-op out "add" &p @(Box.peek bv)))))
         (JSON.Patch.removed-members ops path am bm)
         bm))
 
