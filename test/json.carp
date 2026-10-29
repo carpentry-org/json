@@ -1324,6 +1324,42 @@ break")) "str string with newline")
       (Maybe.nothing? &(JSON.get-in &j &[@"abc"])))
     "get-in returns Nothing for non-numeric key on array")
 
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Str @"a")) (Box.init (JSON.Str @"b"))])]
+      (match (JSON.get-in &j &[])
+        (Maybe.Just v) (= &(ser &v) "[\"a\",\"b\"]")
+        _ false))
+    "get-in with an empty path returns the whole value")
+
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Str @"a")) (Box.init (JSON.Str @"b"))])]
+      (match (JSON.get-in &j &[@"01"])
+        (Maybe.Just v) (= &(ser &v) "\"b\"")
+        _ false))
+    "get-in accepts a leading-zero array index")
+
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Num 1.0))])]
+      (Maybe.nothing? &(JSON.get-in &j &[@"1"])))
+    "get-in returns Nothing for an index equal to the array length")
+
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Num 1.0))])]
+      (Maybe.nothing? &(JSON.get-in &j &[@"-1"])))
+    "get-in returns Nothing for a negative array index")
+
+  (assert-true test
+    (let [j (JSON.Arr [(Box.init (JSON.Num 1.0))])]
+      (Maybe.nothing? &(JSON.get-in &j &[@"-"])))
+    "get-in returns Nothing for the - token on an array")
+
+  (assert-true test
+    (let [j (parse-json "{\"0\":\"zero\",\"01\":\"one\"}")]
+      (match (JSON.get-in &j &[@"01"])
+        (Maybe.Just v) (= &(ser &v) "\"one\"")
+        _ false))
+    "get-in uses a leading-zero token on an object as a key")
+
   (assert-equal test
     "{\"a\":99}"
     &(ser
@@ -1647,6 +1683,20 @@ break")) "str string with newline")
   (assert-true test
     (Maybe.nothing? &(JSON.Pointer.get &rfc-doc "foo"))
     "Pointer.get returns Nothing for an invalid pointer")
+
+  (assert-true test
+    (let [j (parse-json "{\"0\":\"zero\",\"01\":\"one\"}")]
+      (match (JSON.Pointer.get &j "/0")
+        (Maybe.Just v) (= &(ser &v) "\"zero\"")
+        _ false))
+    "Pointer.get uses a numeric token on an object as a key")
+
+  (assert-true test
+    (let [j (parse-json "{\"0\":\"zero\",\"01\":\"one\"}")]
+      (match (JSON.Pointer.get &j "/01")
+        (Maybe.Just v) (= &(ser &v) "\"one\"")
+        _ false))
+    "Pointer.get uses a leading-zero token on an object as a key")
 
   (assert-true test
     (= &(parse-json "1") &(parse-json "1"))
